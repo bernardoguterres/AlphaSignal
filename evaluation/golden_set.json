@@ -1,0 +1,402 @@
+[
+  {
+    "id": "001",
+    "question": "What was Apple's total revenue in fiscal year 2024?",
+    "ticker": "AAPL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Apple reported total revenue of $394.3 billion in fiscal year 2024",
+    "question_type": "factual"
+  },
+  {
+    "id": "002",
+    "question": "How has Apple's iPhone revenue changed over the last two quarters?",
+    "ticker": "AAPL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "iPhone revenue increased from $X billion to $Y billion, showing Z% growth",
+    "question_type": "trend"
+  },
+  {
+    "id": "003",
+    "question": "What risk factors does Apple highlight related to supply chain disruptions?",
+    "ticker": "AAPL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Apple identifies geopolitical tensions, component shortages, and manufacturing capacity constraints as key supply chain risks",
+    "question_type": "comparative"
+  },
+  {
+    "id": "004",
+    "question": "Was Apple's guidance for the next quarter positive or negative?",
+    "ticker": "AAPL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management provided cautiously optimistic guidance citing strong demand but economic uncertainty",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "005",
+    "question": "What did Apple management say about AI integration in their products?",
+    "ticker": "AAPL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management discussed plans to integrate AI capabilities across product line including Siri improvements and on-device ML",
+    "question_type": "specific"
+  },
+  {
+    "id": "006",
+    "question": "What was Microsoft's cloud revenue in the most recent quarter?",
+    "ticker": "MSFT",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Microsoft reported cloud revenue of $X billion, representing Y% of total revenue",
+    "question_type": "factual"
+  },
+  {
+    "id": "007",
+    "question": "How has Microsoft's operating margin trended over the past year?",
+    "ticker": "MSFT",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Operating margin improved from X% to Y% driven by cloud efficiency and cost management",
+    "question_type": "trend"
+  },
+  {
+    "id": "008",
+    "question": "What competitive risks does Microsoft identify in the AI market?",
+    "ticker": "MSFT",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Microsoft highlights competition from Google, Amazon, and emerging AI startups as key competitive risks",
+    "question_type": "comparative"
+  },
+  {
+    "id": "009",
+    "question": "Was Microsoft's Azure growth guidance positive or negative?",
+    "ticker": "MSFT",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management provided strong positive guidance for Azure with expectations of continued double-digit growth",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "010",
+    "question": "What did Microsoft say about OpenAI partnership and AI monetization?",
+    "ticker": "MSFT",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management emphasized OpenAI integration across products and early success in AI monetization through Copilot",
+    "question_type": "specific"
+  },
+  {
+    "id": "011",
+    "question": "What was NVIDIA's datacenter revenue in the latest quarter?",
+    "ticker": "NVDA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "NVIDIA reported datacenter revenue of $X billion, up Y% year-over-year",
+    "question_type": "factual"
+  },
+  {
+    "id": "012",
+    "question": "How has NVIDIA's gross margin changed over the last two quarters?",
+    "ticker": "NVDA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Gross margin improved from X% to Y% driven by favorable product mix and pricing",
+    "question_type": "trend"
+  },
+  {
+    "id": "013",
+    "question": "What supply chain risks does NVIDIA highlight for GPU production?",
+    "ticker": "NVDA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "NVIDIA identifies semiconductor manufacturing capacity constraints and advanced packaging limitations as key risks",
+    "question_type": "comparative"
+  },
+  {
+    "id": "014",
+    "question": "Was NVIDIA's AI demand outlook positive or negative?",
+    "ticker": "NVDA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management expressed very positive outlook on AI demand with expectations of sustained strong growth",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "015",
+    "question": "What did NVIDIA management say about the Blackwell architecture launch?",
+    "ticker": "NVDA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management announced Blackwell launch timeline and highlighted significant performance improvements for AI workloads",
+    "question_type": "specific"
+  },
+  {
+    "id": "016",
+    "question": "What was JPMorgan's net interest income in the most recent quarter?",
+    "ticker": "JPM",
+    "relevant_chunk_ids": [],
+    "answer_summary": "JPMorgan reported net interest income of $X billion",
+    "question_type": "factual"
+  },
+  {
+    "id": "017",
+    "question": "How has JPMorgan's credit loss provisions trended over the past year?",
+    "ticker": "JPM",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Credit loss provisions increased/decreased from $X billion to $Y billion reflecting economic outlook",
+    "question_type": "trend"
+  },
+  {
+    "id": "018",
+    "question": "What regulatory risks does JPMorgan identify in their latest filing?",
+    "ticker": "JPM",
+    "relevant_chunk_ids": [],
+    "answer_summary": "JPMorgan highlights capital requirements, stress testing, and regulatory compliance costs as key risks",
+    "question_type": "comparative"
+  },
+  {
+    "id": "019",
+    "question": "Was JPMorgan's economic outlook positive or negative?",
+    "ticker": "JPM",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management provided cautiously optimistic economic outlook with attention to potential recession risks",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "020",
+    "question": "What did JPMorgan CEO say about digital banking strategy?",
+    "ticker": "JPM",
+    "relevant_chunk_ids": [],
+    "answer_summary": "CEO emphasized continued investment in digital capabilities and technology modernization",
+    "question_type": "specific"
+  },
+  {
+    "id": "021",
+    "question": "What was Google's advertising revenue in the latest quarter?",
+    "ticker": "GOOGL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Google reported advertising revenue of $X billion",
+    "question_type": "factual"
+  },
+  {
+    "id": "022",
+    "question": "How has Google Cloud's operating margin changed over the past year?",
+    "ticker": "GOOGL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Google Cloud operating margin improved from negative X% to positive/negative Y%",
+    "question_type": "trend"
+  },
+  {
+    "id": "023",
+    "question": "What AI competition risks does Google identify from Microsoft and OpenAI?",
+    "ticker": "GOOGL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Google highlights search disruption risks from AI chatbots and cloud AI services competition",
+    "question_type": "comparative"
+  },
+  {
+    "id": "024",
+    "question": "Was Google's guidance on AI product adoption positive or negative?",
+    "ticker": "GOOGL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management expressed strong confidence in AI product roadmap and monetization potential",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "025",
+    "question": "What did Google management say about Bard and generative AI integration?",
+    "ticker": "GOOGL",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management discussed plans to integrate generative AI across search, workspace, and cloud products",
+    "question_type": "specific"
+  },
+  {
+    "id": "026",
+    "question": "What was Amazon's AWS revenue in the most recent quarter?",
+    "ticker": "AMZN",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Amazon reported AWS revenue of $X billion, growing Y% year-over-year",
+    "question_type": "factual"
+  },
+  {
+    "id": "027",
+    "question": "How has Amazon's e-commerce operating margin trended recently?",
+    "ticker": "AMZN",
+    "relevant_chunk_ids": [],
+    "answer_summary": "E-commerce operating margin improved from X% to Y% through cost optimization and automation",
+    "question_type": "trend"
+  },
+  {
+    "id": "028",
+    "question": "What labor and logistics risks does Amazon highlight?",
+    "ticker": "AMZN",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Amazon identifies labor availability, wage pressure, and supply chain disruptions as key operational risks",
+    "question_type": "comparative"
+  },
+  {
+    "id": "029",
+    "question": "Was Amazon's holiday season outlook positive or negative?",
+    "ticker": "AMZN",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management provided positive holiday guidance citing strong Prime membership and inventory positioning",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "030",
+    "question": "What did Amazon say about generative AI capabilities in AWS?",
+    "ticker": "AMZN",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management highlighted Bedrock platform and Trainium chips as key AI infrastructure offerings",
+    "question_type": "specific"
+  },
+  {
+    "id": "031",
+    "question": "What was Meta's Reality Labs operating loss in the latest quarter?",
+    "ticker": "META",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Reality Labs reported operating loss of $X billion",
+    "question_type": "factual"
+  },
+  {
+    "id": "032",
+    "question": "How has Meta's user growth across its family of apps changed?",
+    "ticker": "META",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Daily active users increased from X billion to Y billion across Facebook, Instagram, and WhatsApp",
+    "question_type": "trend"
+  },
+  {
+    "id": "033",
+    "question": "What privacy and regulatory risks does Meta identify?",
+    "ticker": "META",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Meta highlights data privacy regulations, content moderation requirements, and potential fines as key risks",
+    "question_type": "comparative"
+  },
+  {
+    "id": "034",
+    "question": "Was Meta's guidance on AI-driven ad targeting positive or negative?",
+    "ticker": "META",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management expressed confidence in AI improving ad relevance and advertiser ROI",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "035",
+    "question": "What did Meta management say about metaverse investment timeline?",
+    "ticker": "META",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management committed to long-term metaverse investment while acknowledging near-term losses",
+    "question_type": "specific"
+  },
+  {
+    "id": "036",
+    "question": "What was Tesla's automotive revenue in the most recent quarter?",
+    "ticker": "TSLA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Tesla reported automotive revenue of $X billion",
+    "question_type": "factual"
+  },
+  {
+    "id": "037",
+    "question": "How has Tesla's vehicle delivery growth rate changed over the past year?",
+    "ticker": "TSLA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Vehicle deliveries grew from X units to Y units, representing Z% growth rate",
+    "question_type": "trend"
+  },
+  {
+    "id": "038",
+    "question": "What production and supply chain risks does Tesla identify?",
+    "ticker": "TSLA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Tesla highlights battery supply constraints, factory ramp challenges, and commodity price volatility",
+    "question_type": "comparative"
+  },
+  {
+    "id": "039",
+    "question": "Was Tesla's guidance on Cybertruck production positive or negative?",
+    "ticker": "TSLA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management provided positive Cybertruck production guidance with expected volume ramp",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "040",
+    "question": "What did Tesla management say about Full Self-Driving progress?",
+    "ticker": "TSLA",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management discussed FSD beta improvements and path toward autonomous capability",
+    "question_type": "specific"
+  },
+  {
+    "id": "041",
+    "question": "What was Goldman Sachs' investment banking revenue in the latest quarter?",
+    "ticker": "GS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Goldman Sachs reported investment banking revenue of $X billion",
+    "question_type": "factual"
+  },
+  {
+    "id": "042",
+    "question": "How has Goldman Sachs' trading revenue trended over the past year?",
+    "ticker": "GS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Trading revenue increased/decreased from $X billion to $Y billion reflecting market volatility",
+    "question_type": "trend"
+  },
+  {
+    "id": "043",
+    "question": "What market and regulatory risks does Goldman Sachs highlight?",
+    "ticker": "GS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Goldman identifies market volatility, interest rate changes, and capital requirements as key risks",
+    "question_type": "comparative"
+  },
+  {
+    "id": "044",
+    "question": "Was Goldman Sachs' M&A activity outlook positive or negative?",
+    "ticker": "GS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management provided cautious outlook on M&A citing economic uncertainty but noting deal pipeline strength",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "045",
+    "question": "What did Goldman Sachs management say about consumer banking strategy?",
+    "ticker": "GS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management discussed pullback from consumer banking to focus on core wealth and institutional businesses",
+    "question_type": "specific"
+  },
+  {
+    "id": "046",
+    "question": "What was Morgan Stanley's wealth management revenue in the latest quarter?",
+    "ticker": "MS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Morgan Stanley reported wealth management revenue of $X billion",
+    "question_type": "factual"
+  },
+  {
+    "id": "047",
+    "question": "How has Morgan Stanley's assets under management changed over the past year?",
+    "ticker": "MS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "AUM increased from $X trillion to $Y trillion driven by market appreciation and net inflows",
+    "question_type": "trend"
+  },
+  {
+    "id": "048",
+    "question": "What integration risks does Morgan Stanley identify from the E*TRADE acquisition?",
+    "ticker": "MS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Morgan Stanley highlights technology integration, client retention, and operational complexity as key risks",
+    "question_type": "comparative"
+  },
+  {
+    "id": "049",
+    "question": "Was Morgan Stanley's guidance on wealth management fees positive or negative?",
+    "ticker": "MS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management expressed confidence in fee growth driven by advisor productivity and client acquisition",
+    "question_type": "sentiment"
+  },
+  {
+    "id": "050",
+    "question": "What did Morgan Stanley management say about workplace flexibility strategy?",
+    "ticker": "MS",
+    "relevant_chunk_ids": [],
+    "answer_summary": "Management discussed hybrid work model balancing flexibility with collaboration and culture",
+    "question_type": "specific"
+  }
+]

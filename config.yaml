@@ -1,0 +1,62 @@
+tickers:
+  - AAPL
+  - MSFT
+  - GOOGL
+  - AMZN
+  - NVDA
+  - META
+  - TSLA
+  - JPM
+  - GS
+  - MS
+
+ingestion:
+  edgar:
+    filing_types: ["10-K", "10-Q"]
+    years_back: 2
+    rate_limit_delay: 0.5
+  news:
+    sources:
+      - name: "Yahoo Finance"
+        url_template: "https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
+      - name: "Reuters"
+        url_template: "https://feeds.reuters.com/reuters/companyNews"
+    max_articles_per_ticker: 50
+    max_age_days: 90
+
+chunking:
+  target_tokens: 300
+  min_tokens: 100
+  max_tokens: 400
+  overlap_tokens: 50
+
+embeddings:
+  model: "text-embedding-ada-002"
+  batch_size: 100
+  max_retries: 3
+  retry_delay: 1.0
+
+retrieval:
+  dense_candidates: 50
+  sparse_candidates: 50
+  rerank_candidates: 20
+  final_top_k: 5
+  hybrid_weights:
+    bm25: 0.4
+    dense: 0.6
+
+generation:
+  model: "gpt-4o-mini"
+  max_tokens: 1000
+  temperature: 0.1
+  sentiment_cache_hours: 24
+
+storage:
+  faiss_index_path: "data/faiss_index"
+  sqlite_db_path: "data/metadata.db"
+  embeddings_cache_path: "data/embeddings_cache"
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  reload: true
