@@ -4,77 +4,40 @@ AlphaSignal is a production-grade financial RAG (Retrieval-Augmented Generation)
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         INGESTION PIPELINE                              │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌──────────────┐         ┌──────────────┐                            │
-│  │ SEC EDGAR    │         │ Financial    │                            │
-│  │ 10-K / 10-Q  │         │ News RSS     │                            │
-│  └──────┬───────┘         └──────┬───────┘                            │
-│         │                        │                                     │
-│         └────────────┬───────────┘                                     │
-│                      ▼                                                 │
-│            ┌─────────────────────┐                                    │
-│            │ Semantic Chunker    │ (sentence-aware, 300±100 tokens)   │
-│            └─────────┬───────────┘                                    │
-│                      ▼                                                 │
-│            ┌─────────────────────┐                                    │
-│            │ Embedder (ada-002)  │                                    │
-│            └─────────┬───────────┘                                    │
-│                      ▼                                                 │
-│         ┌────────────┴──────────────┐                                 │
-│         ▼                            ▼                                 │
-│  ┌──────────────┐          ┌────────────────┐                        │
-│  │ FAISS Index  │          │ SQLite Metadata│                        │
-│  │ (cosine sim) │          │ (ChunkRecord)  │                        │
-│  └──────────────┘          └────────────────┘                        │
-└─────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          RETRIEVAL PIPELINE                             │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  User Query ──► Embed Query ──┬──► Dense (FAISS)                      │
-│                                │                                        │
-│                                └──► Sparse (BM25)                       │
-│                                         │                               │
-│                                         ▼                               │
-│                              ┌─────────────────────┐                   │
-│                              │ Hybrid Merge        │                   │
-│                              │ (40% BM25 + 60% vec)│                   │
-│                              └──────────┬──────────┘                   │
-│                                         ▼                               │
-│                              ┌─────────────────────┐                   │
-│                              │ Cross-Encoder       │                   │
-│                              │ Reranker            │                   │
-│                              └──────────┬──────────┘                   │
-│                                         ▼                               │
-│                              Top-K Relevant Chunks                      │
-└─────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         GENERATION PIPELINE                             │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Retrieved Chunks ──► RAG Generator (GPT-4o-mini) ──► Answer + Citations│
-│                                                                         │
-│  Retrieved Chunks ──► Sentiment Extractor ──► Sentiment Signals (cached)│
-└─────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            FastAPI REST API                             │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  POST   /query                    → RAG query with citations           │
-│  GET    /sentiment/{ticker}       → Sentiment signals by ticker        │
-│  GET    /sentiment/{ticker}/summary → Aggregated sentiment summary     │
-│  POST   /ingest/{ticker}          → Ingest single ticker               │
-│  POST   /ingest/batch             → Batch ingest multiple tickers      │
-│  GET    /health                   → Health check                       │
-│  GET    /metrics                  → Performance metrics (latency p50/p95/p99)│
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A[Tickers from Config] --> B[EDGAR Ingester<br/>SEC 10-K/10-Q]
+    A --> C[News Ingester<br/>Financial RSS]
+    B --> D[Raw Documents]
+    C --> D
+    D --> E[Semantic Chunker<br/>300±100 tokens]
+    E --> F[Chunk Store]
+    F --> G[Embedder<br/>OpenAI ada-002]
+    G --> H[Vector Store<br/>FAISS Index]
+    G --> I[Metadata Store<br/>SQLite DB]
+    
+    J[User Query] --> K[Query Embedder<br/>OpenAI ada-002]
+    K --> L[Dense Retrieval<br/>FAISS Cosine Sim]
+    J --> M[Sparse Retrieval<br/>BM25 Keywords]
+    L --> N[Hybrid Merge<br/>40% BM25 + 60% Dense]
+    M --> N
+    N --> O[Cross-Encoder Reranker<br/>Top-K Precision]
+    O --> P[Top-5 Relevant Chunks]
+    P --> Q[RAG Generator<br/>GPT-4o-mini]
+    P --> R[Sentiment Extractor<br/>Cached Scores]
+    Q --> S[Answer + Citations]
+    R --> T[Sentiment Signals]
+    T --> U[AlphaLab Integration<br/>Strategy Features]
+    S --> V[FastAPI Response<br/>/query endpoint]
+    T --> W[FastAPI Response<br/>/sentiment endpoint]
+    
+    H -.->|Load on Startup| L
+    I -.->|Load on Startup| N
+    
+    style G fill:#4ade80
+    style O fill:#fbbf24
+    style Q fill:#3b82f6
+    style U fill:#ec4899
 ```
 
 ## Quickstart
