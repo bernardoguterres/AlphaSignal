@@ -2,106 +2,136 @@
   {
     "ticker": "AAPL",
     "date": "2022-10-28",
-    "expected_sentiment": "negative",
     "event_description": "Apple Q4 FY2022 earnings: iPhone revenue missed estimates amid weakening consumer demand and FX headwinds; management guided for revenue deceleration in holiday quarter",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "negative",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": -10.9994,
+    "correct": true
   },
   {
     "ticker": "AAPL",
     "date": "2023-05-05",
-    "expected_sentiment": "positive",
     "event_description": "Apple Q2 FY2023 earnings beat: EPS of $1.52 beat estimates of $1.43; services revenue hit record $20.9 billion; management signaled return to growth",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "positive",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": -0.4386,
+    "correct": false
   },
   {
     "ticker": "AAPL",
     "date": "2022-11-03",
-    "expected_sentiment": "positive",
     "event_description": "Strong Q4 iPhone demand signals from supply chain partners in Asia; TSMC and Foxconn report robust Apple orders",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "positive",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": 5.9286,
+    "correct": true
   },
   {
     "ticker": "MSFT",
     "date": "2022-10-26",
-    "expected_sentiment": "negative",
     "event_description": "Microsoft Q1 FY2023 earnings miss: Azure cloud growth decelerated to 35% from 46% prior quarter; PC market weakness weighed on Windows revenue; guided for further cloud slowdown",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "negative",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": -4.8504,
+    "correct": true
   },
   {
     "ticker": "MSFT",
     "date": "2023-01-24",
-    "expected_sentiment": "negative",
     "event_description": "Microsoft announced layoffs of 10,000 employees, about 5% of workforce; cited macroeconomic conditions and slowing growth",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "negative",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": 2.3839,
+    "correct": false
   },
   {
     "ticker": "MSFT",
     "date": "2023-04-25",
-    "expected_sentiment": "positive",
     "event_description": "Microsoft Q3 FY2023 earnings beat: Azure accelerated to 27% growth driven by AI workloads; Copilot commercial preview announced; raised full-year guidance",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "positive",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": 10.8888,
+    "correct": true
   },
   {
     "ticker": "NVDA",
     "date": "2022-08-24",
-    "expected_sentiment": "positive",
     "event_description": "NVIDIA Q2 FY2023 earnings: datacenter revenue hit record $3.8 billion; announced $10 billion buyback; data center demand far outpaced gaming weakness",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "positive",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": -12.3563,
+    "correct": false
   },
   {
     "ticker": "NVDA",
     "date": "2022-11-16",
-    "expected_sentiment": "negative",
     "event_description": "NVIDIA Q3 FY2023 earnings: gaming revenue collapsed 51% YoY; warned of continued inventory digestion; gross margin compressed significantly",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "negative",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": 3.8278,
+    "correct": false
   },
   {
     "ticker": "NVDA",
     "date": "2023-05-24",
-    "expected_sentiment": "positive",
     "event_description": "NVIDIA Q1 FY2024 earnings blowout: revenue guidance of $11 billion for Q2 doubled analyst estimates; CEO cited insatiable AI demand for H100 GPUs; initiated $25 billion buyback",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "positive",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": 30.2312,
+    "correct": true
   },
   {
     "ticker": "SPY",
     "date": "2022-11-10",
-    "expected_sentiment": "positive",
     "event_description": "October 2022 CPI came in at 7.7%, well below the 8.0% estimate; market rallied sharply on hopes of Fed pivot and peak inflation narrative",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "positive",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": -0.114,
+    "correct": false
   },
   {
     "ticker": "SPY",
     "date": "2022-09-13",
-    "expected_sentiment": "negative",
     "event_description": "August 2022 CPI surprised to the upside at 8.3% vs 8.1% expected; core CPI accelerated, crushing Fed pivot hopes and triggering broad market selloff",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "negative",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": -1.8907,
+    "correct": true
   },
   {
     "ticker": "SPY",
     "date": "2023-03-10",
-    "expected_sentiment": "negative",
     "event_description": "Silicon Valley Bank collapsed after a run on deposits; FDIC took over; triggered fears of broader regional banking contagion and financial stability concerns",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "negative",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": 1.4429,
+    "correct": false
   },
   {
     "ticker": "AAPL",
     "date": "2023-06-05",
-    "expected_sentiment": "positive",
     "event_description": "Apple announced Vision Pro mixed-reality headset at WWDC 2023; developer excitement high; announced 15-inch MacBook Air and major iOS 17 features",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "positive",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": 2.3443,
+    "correct": true
   },
   {
     "ticker": "MSFT",
     "date": "2023-02-07",
-    "expected_sentiment": "positive",
     "event_description": "Microsoft announced integration of ChatGPT-powered AI into Bing search and Edge browser; framed as major competitive challenge to Google in search market",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "positive",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": 1.7229,
+    "correct": true
   },
   {
     "ticker": "NVDA",
     "date": "2023-08-23",
-    "expected_sentiment": "positive",
     "event_description": "NVIDIA Q2 FY2024 earnings: revenue tripled YoY to $13.5 billion; datacenter revenue up 171%; raised Q3 guidance to $16 billion; AI demand described as exceptional and broad-based",
-    "actual_5d_return_pct": null
+    "expected_sentiment": "positive",
+    "predicted_sentiment": "unavailable",
+    "actual_5d_return_pct": 4.5589,
+    "correct": true
   }
 ]
