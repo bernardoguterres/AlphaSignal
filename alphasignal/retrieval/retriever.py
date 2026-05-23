@@ -210,6 +210,16 @@ class HybridRetriever:
         """
         # Normalize scores to [0, 1] range
         def normalize_scores(results: list[tuple[str, float]]) -> dict[str, float]:
+            """Min-max normalise retrieval scores to the [0, 1] range.
+
+            Args:
+                results: List of (chunk_id, raw_score) tuples from a retriever.
+
+            Returns:
+                Dict mapping chunk_id to its normalised score. Returns an empty
+                dict for empty input; returns all-1.0 when all scores are equal
+                (degenerate case, avoids division by zero).
+            """
             if not results:
                 return {}
 
