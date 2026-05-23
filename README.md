@@ -374,6 +374,29 @@ AlphaSignal is part of a three-repo algorithmic trading system:
 
 AlphaSignal's sentiment endpoint provides time-series sentiment scores that feed into AlphaLab backtesting strategies as features.
 
+### Calling the API
+
+With AlphaSignal running locally (`uvicorn alphasignal.api.app:app --port 8001`), a strategy fetches sentiment like this:
+
+```bash
+curl http://localhost:8001/sentiment/AAPL
+```
+
+```python
+import httpx
+
+response = httpx.get("http://localhost:8001/sentiment/AAPL")
+data = response.json()
+
+# Use the rolling sentiment score as a strategy feature
+sentiment_5d  = data["rolling_5d_sentiment"]   # float, -1.0 to 1.0
+sentiment_20d = data["rolling_20d_sentiment"]   # float, -1.0 to 1.0
+
+# Example: suppress buy signal on strongly negative sentiment
+if sentiment_20d < -0.3:
+    return Signal.HOLD  # skip entry
+```
+
 ### Sentiment Feature Feed
 
 The `/sentiment/{ticker}` endpoint returns structured sentiment signals:

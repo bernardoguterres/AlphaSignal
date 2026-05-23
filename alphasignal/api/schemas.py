@@ -1,11 +1,21 @@
 """Pydantic models for AlphaSignal API requests and responses."""
 
 from datetime import date
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Request models
 class QueryRequest(BaseModel):
+    """Request body for the /query endpoint.
+
+    Attributes:
+        query: Natural-language question about a company or filing.
+        ticker_filter: Optional list of tickers to restrict retrieval to.
+        date_from: Earliest document date to include in retrieval.
+        date_to: Latest document date to include in retrieval.
+        top_k: Number of results to return (1–20, default 5).
+    """
+
     query: str = Field(..., min_length=5, max_length=500)
     ticker_filter: list[str] | None = None
     date_from: date | None = None
@@ -30,6 +40,10 @@ class Citation(BaseModel):
 
 
 class QueryResponse(BaseModel):
+    # `model_used` would normally conflict with Pydantic's protected `model_` namespace;
+    # ConfigDict opt-out is required to suppress the UserWarning.
+    model_config = ConfigDict(protected_namespaces=())
+
     query: str
     answer: str
     citations: list[Citation]
