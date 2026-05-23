@@ -52,7 +52,7 @@ flowchart TD
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/AlphaSignal.git
+git clone https://github.com/bernardoguterres/AlphaSignal.git
 cd AlphaSignal
 
 # Create virtual environment
