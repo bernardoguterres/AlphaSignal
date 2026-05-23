@@ -364,6 +364,14 @@ python alphasignal/scripts/benchmark.py
 
 ## AlphaLab Integration
 
+AlphaSignal is part of a three-repo algorithmic trading system:
+
+| Repo | Purpose |
+|------|---------|
+| **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Backtesting platform — consumes AlphaSignal sentiment as strategy features |
+| **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** | 24/7 execution engine — runs strategies exported from AlphaLab |
+| **[AlphaSignal](https://github.com/bernardoguterres/AlphaSignal)** (this repo) | Financial RAG intelligence layer |
+
 AlphaSignal's sentiment endpoint provides time-series sentiment scores that feed into AlphaLab backtesting strategies as features.
 
 ### Sentiment Feature Feed
