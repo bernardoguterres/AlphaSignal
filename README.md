@@ -27,7 +27,8 @@ flowchart TD
     P --> R[Sentiment Extractor<br/>Cached Scores]
     Q --> S[Answer + Citations]
     R --> T[Sentiment Signals]
-    T --> U[AlphaLab Integration<br/>Strategy Features]
+    T --> U[AlphaLive Pre-execution Gate<br/>Sentiment Filter]
+    T --> UA[AlphaLab Integration<br/>Strategy Features]
     S --> V[FastAPI Response<br/>/query endpoint]
     T --> W[FastAPI Response<br/>/sentiment endpoint]
     
@@ -38,6 +39,7 @@ flowchart TD
     style O fill:#fbbf24
     style Q fill:#3b82f6
     style U fill:#ec4899
+    style UA fill:#ec4899
 ```
 
 ## Quickstart
@@ -368,7 +370,7 @@ AlphaSignal is part of a three-repo algorithmic trading system:
 
 | Repo | Purpose | AlphaSignal connected? |
 |------|---------|------------------------|
-| **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Backtesting platform — consumes AlphaSignal sentiment as strategy features | Planned |
+| **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Backtesting platform — consumes AlphaSignal sentiment as strategy features | ✅ Live |
 | **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** | 24/7 execution engine — runs strategies exported from AlphaLab | ✅ Live (2026-05-25) |
 | **[AlphaSignal](https://github.com/bernardoguterres/AlphaSignal)** (this repo) | Financial RAG intelligence layer | — |
 
@@ -385,15 +387,14 @@ curl http://localhost:8001/sentiment/AAPL
 ```python
 import httpx
 
-response = httpx.get("http://localhost:8001/sentiment/AAPL")
+response = httpx.get("http://localhost:8001/sentiment/AAPL/summary")
 data = response.json()
 
-# Use the rolling sentiment score as a strategy feature
-sentiment_5d  = data["rolling_5d_sentiment"]   # float, -1.0 to 1.0
-sentiment_20d = data["rolling_20d_sentiment"]   # float, -1.0 to 1.0
+# Use the aggregated sentiment score as a strategy feature
+avg_sentiment = data["avg_sentiment"]  # float, -1.0 to 1.0
 
 # Example: suppress buy signal on strongly negative sentiment
-if sentiment_20d < -0.3:
+if avg_sentiment < -0.3:
     return Signal.HOLD  # skip entry
 ```
 
@@ -720,7 +721,7 @@ embeddings:
 
 ### Long-term
 - [ ] Multi-modal support (charts, images from filings)
-- [ ] Integration with AlphaLab backtesting platform
+- [x] Integration with AlphaLab backtesting platform
 - [ ] Deploy to production (Docker, K8s)
 - [ ] Build web UI for queries and sentiment visualization
 
