@@ -27,7 +27,7 @@ flowchart TD
     P --> R[Sentiment Extractor<br/>Cached Scores]
     Q --> S[Answer + Citations]
     R --> T[Sentiment Signals]
-    T --> U[AlphaLive Pre-execution Gate<br/>Sentiment Filter]
+    T --> U[AlphaLive Pre-execution Gate<br/>Sentiment + DeepLOB LOB Filter]
     T --> UA[AlphaLab Integration<br/>Strategy Features]
     S --> V[FastAPI Response<br/>/query endpoint]
     T --> W[FastAPI Response<br/>/sentiment endpoint]
@@ -373,8 +373,9 @@ AlphaSignal is part of a three-repo algorithmic trading system:
 | **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Backtesting platform — consumes AlphaSignal sentiment as strategy features | ✅ Live |
 | **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** | 24/7 execution engine — runs strategies exported from AlphaLab | ✅ Live (2026-05-25) |
 | **[AlphaSignal](https://github.com/bernardoguterres/AlphaSignal)** (this repo) | Financial RAG intelligence layer | — |
+| **[DeepLOB](https://github.com/bernardoguterres/DeepLOB)** | CNN+LSTM LOB mid-price predictor — runs alongside AlphaSignal in the execution gate | ✅ Concurrent |
 
-AlphaSignal's `/sentiment/{ticker}` endpoint is now called by AlphaLive before every order via an async concurrent execution gate. Strongly negative sentiment suppresses long entries; strongly positive suppresses shorts. The filter fails open — AlphaLive trades normally if AlphaSignal is unreachable.
+AlphaSignal's `/sentiment/{ticker}` endpoint is called by AlphaLive before every order, running **concurrently** with the DeepLOB LOB filter via `asyncio.gather` — both checks complete in parallel rather than sequentially. Strongly negative sentiment suppresses long entries; strongly positive suppresses shorts. Both filters fail open — AlphaLive trades normally if either service is unreachable.
 
 ### Calling the API
 
