@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest alphasignal/tests/ -v --tb=short --cov=alphasignal --cov-report=term-missing
+        env:
+          # OpenAI calls are mocked in tests — dummy key prevents accidental real calls.
+          OPENAI_API_KEY: sk-ci-dummy-key-for-testing
