@@ -5,7 +5,7 @@ pydantic-settings==2.5.2
 pyyaml==6.0.2
 python-dotenv==1.0.1
 openai==1.51.0
-faiss-cpu==1.8.0
+faiss-cpu==1.9.0
 rank-bm25==0.2.2
 sentence-transformers==3.1.1
 sec-edgar-downloader==5.1.0
