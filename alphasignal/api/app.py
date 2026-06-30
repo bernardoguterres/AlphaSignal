@@ -1,6 +1,8 @@
 """Main FastAPI application for AlphaSignal."""
 
 import logging
+import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -27,17 +29,38 @@ from alphasignal.retrieval.retriever import HybridRetriever
 from alphasignal.store.metadata_store import MetadataStore
 from alphasignal.store.vector_store import VectorStore
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
+
+
+def setup_logging() -> None:
+    """Configure root logger from LOG_LEVEL env var (default INFO).
+
+    Call once at process startup. Uses the same format as AlphaLive so logs
+    are parseable consistently across the Alpha system.
+    """
+    level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    root = logging.getLogger()
+    root.setLevel(level)
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(level)
+    handler.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    root.addHandler(handler)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events."""
+    setup_logging()
     # Startup
     logger.info("=" * 80)
     logger.info("AlphaSignal starting up")
