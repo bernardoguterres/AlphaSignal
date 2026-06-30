@@ -64,25 +64,22 @@ class SemanticChunker:
             "Inc.", "Corp.", "Ltd.", "Co.", "LLC"
         ]
 
-        # Replace abbreviations with placeholders
-        protected_text = text
-        placeholders = {}
-        for i, abbr in enumerate(abbreviations):
-            placeholder = f"__ABBR{i}__"
-            placeholders[placeholder] = abbr
-            protected_text = protected_text.replace(abbr, placeholder)
+        # Build placeholder map and a single regex for each direction
+        abbr_to_placeholder = {abbr: f"__ABBR{i}__" for i, abbr in enumerate(abbreviations)}
+        placeholder_to_abbr = {v: k for k, v in abbr_to_placeholder.items()}
+        protect_re = re.compile("|".join(re.escape(a) for a in abbreviations))
+        restore_re = re.compile("|".join(re.escape(p) for p in placeholder_to_abbr))
+
+        protected_text = protect_re.sub(lambda m: abbr_to_placeholder[m.group()], text)
 
         # Split on sentence-ending punctuation followed by space and capital letter
         # or followed by newline
         sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])\n+', protected_text)
 
-        # Restore abbreviations
+        # Restore abbreviations with a single regex sub per sentence
         restored_sentences = []
         for sentence in sentences:
-            for placeholder, abbr in placeholders.items():
-                sentence = sentence.replace(placeholder, abbr)
-            sentence = sentence.strip()
-            # Filter out very short sentences
+            sentence = restore_re.sub(lambda m: placeholder_to_abbr[m.group()], sentence).strip()
             if len(sentence) > 10:
                 restored_sentences.append(sentence)
 

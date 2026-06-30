@@ -47,9 +47,8 @@ def _fetch_price_data_yfinance(ticker: str, start: date, end: date) -> dict[date
         return {}
 
     prices: dict[date, float] = {}
-    for ts, row in df.iterrows():
+    for ts, close_val in zip(df.index, df["Close"]):
         d = ts.date() if hasattr(ts, "date") else ts
-        close_val = row["Close"]
         # Handle both scalar and Series (multi-ticker edge case)
         if hasattr(close_val, "iloc"):
             close_val = float(close_val.iloc[0])
@@ -92,6 +91,8 @@ def _compute_5d_forward_return(
         return None
 
     sorted_dates = sorted(prices)
+    # Build O(1) date→index map so the entry lookup doesn't scan the list
+    date_to_idx = {d: i for i, d in enumerate(sorted_dates)}
 
     # Entry: nearest trading day on or after event_date
     entry_date = _get_nearest_trading_day(prices, event_date)
@@ -99,7 +100,7 @@ def _compute_5d_forward_return(
         logger.warning("No entry trading day found for %s around %s", ticker, event_date)
         return None
 
-    entry_idx = sorted_dates.index(entry_date)
+    entry_idx = date_to_idx[entry_date]
     # Exit: 5 trading days after entry
     exit_idx = entry_idx + 5
     if exit_idx >= len(sorted_dates):
