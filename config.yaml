@@ -9,6 +9,8 @@ tickers:
   - JPM
   - GS
   - MS
+  - SPY
+  - QQQ
 
 ingestion:
   edgar:
