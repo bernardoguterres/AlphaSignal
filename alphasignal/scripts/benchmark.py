@@ -15,6 +15,7 @@ sys.path.insert(0, str(project_root))
 from alphasignal.embeddings.cache import EmbeddingCache
 from alphasignal.embeddings.embedder import Embedder
 from alphasignal.retrieval.evaluator import RetrievalEvaluator
+from alphasignal.retrieval.reranker import CrossEncoderReranker
 from alphasignal.retrieval.retriever import HybridRetriever
 from alphasignal.store.metadata_store import MetadataStore
 from alphasignal.store.vector_store import VectorStore
@@ -27,6 +28,13 @@ logger = logging.getLogger(__name__)
 
 
 # Benchmark configurations
+#
+# NOTE: "chunking" is not actually varied between rows. Only SemanticChunker
+# is implemented, and these benchmarks evaluate retrieval against the corpus
+# as it was already ingested on disk - they don't re-ingest with a different
+# chunking strategy per row. The "chunking" field is kept for future use once
+# a second chunker (e.g. naive fixed-window) exists, but a warning is logged
+# below so results aren't misread as a real chunking comparison.
 CONFIGS_TO_BENCHMARK = [
     {
         "name": "Baseline: naive chunks + dense only",
@@ -70,6 +78,12 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
     print(f"Benchmarking: {config_spec['name']}")
     print(f"{'=' * 80}")
 
+    logger.warning(
+        f"chunking={config_spec['chunking']!r} is not actually applied - only "
+        "SemanticChunker is implemented, so this row evaluates the corpus as "
+        "already ingested on disk, not a re-chunked variant."
+    )
+
     # Initialize components
     storage_config = base_config.get("storage", {})
 
@@ -109,11 +123,14 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
     # Initialize evaluator
     evaluator = RetrievalEvaluator(str(golden_set_path))
 
+    # Initialize reranker if this config calls for it
+    reranker = CrossEncoderReranker() if config_spec["reranking"] else None
+
     # Run evaluation
     logger.info("Running evaluation on golden set...")
     start_time = time.time()
 
-    eval_results = evaluator.evaluate(retriever, top_k=10)
+    eval_results = evaluator.evaluate(retriever, top_k=10, reranker=reranker)
 
     elapsed_ms = int((time.time() - start_time) * 1000)
     avg_latency_ms = (

@@ -58,15 +58,19 @@ class RetrievalEvaluator:
         with open(self.golden_set_path) as f:
             golden_set = json.load(f)
 
-        logger.info(f"Loaded {len(golden_set)} golden queries from {self.golden_set_path}")
+        logger.info(
+            f"Loaded {len(golden_set)} golden queries from {self.golden_set_path}"
+        )
         return golden_set
 
-    def evaluate(self, retriever, top_k: int = 10) -> EvalResults:
+    def evaluate(self, retriever, top_k: int = 10, reranker=None) -> EvalResults:
         """Evaluate retrieval performance on golden set.
 
         Args:
             retriever: HybridRetriever instance
             top_k: Number of results to retrieve per query
+            reranker: Optional CrossEncoderReranker. When provided, retrieved
+                chunks are reranked before metrics are computed against them.
 
         Returns:
             EvalResults with computed metrics
@@ -80,7 +84,7 @@ class RetrievalEvaluator:
                 hit_at_1=0.0,
                 hit_at_5=0.0,
                 hit_at_10=0.0,
-                num_queries=0
+                num_queries=0,
             )
 
         logger.info(f"Evaluating retrieval on {len(self.golden_set)} queries")
@@ -100,21 +104,33 @@ class RetrievalEvaluator:
 
             # Retrieve chunks
             retrieved_chunks = retriever.retrieve(
-                query=query,
-                ticker=ticker,
-                top_k=top_k
+                query=query, ticker=ticker, top_k=top_k
             )
+
+            # Rerank if a reranker was provided
+            if reranker is not None:
+                retrieved_chunks = reranker.rerank(query, retrieved_chunks, top_k=top_k)
 
             # Get retrieved chunk IDs in order
             retrieved_ids = [chunk.chunk_id for chunk in retrieved_chunks]
 
             # Compute metrics for this query
             reciprocal_ranks.append(self.compute_mrr(retrieved_ids, relevant_chunk_ids))
-            ndcg_5_scores.append(self.compute_ndcg(retrieved_ids[:5], relevant_chunk_ids))
-            ndcg_10_scores.append(self.compute_ndcg(retrieved_ids[:10], relevant_chunk_ids))
-            hit_1_scores.append(self.compute_hit_at_k(retrieved_ids[:1], relevant_chunk_ids))
-            hit_5_scores.append(self.compute_hit_at_k(retrieved_ids[:5], relevant_chunk_ids))
-            hit_10_scores.append(self.compute_hit_at_k(retrieved_ids[:10], relevant_chunk_ids))
+            ndcg_5_scores.append(
+                self.compute_ndcg(retrieved_ids[:5], relevant_chunk_ids)
+            )
+            ndcg_10_scores.append(
+                self.compute_ndcg(retrieved_ids[:10], relevant_chunk_ids)
+            )
+            hit_1_scores.append(
+                self.compute_hit_at_k(retrieved_ids[:1], relevant_chunk_ids)
+            )
+            hit_5_scores.append(
+                self.compute_hit_at_k(retrieved_ids[:5], relevant_chunk_ids)
+            )
+            hit_10_scores.append(
+                self.compute_hit_at_k(retrieved_ids[:10], relevant_chunk_ids)
+            )
 
         # Compute mean metrics
         results = EvalResults(
@@ -124,10 +140,12 @@ class RetrievalEvaluator:
             hit_at_1=float(np.mean(hit_1_scores)),
             hit_at_5=float(np.mean(hit_5_scores)),
             hit_at_10=float(np.mean(hit_10_scores)),
-            num_queries=len(self.golden_set)
+            num_queries=len(self.golden_set),
         )
 
-        logger.info(f"Evaluation complete: MRR={results.mrr:.3f}, NDCG@5={results.ndcg_at_5:.3f}")
+        logger.info(
+            f"Evaluation complete: MRR={results.mrr:.3f}, NDCG@5={results.ndcg_at_5:.3f}"
+        )
         return results
 
     @staticmethod

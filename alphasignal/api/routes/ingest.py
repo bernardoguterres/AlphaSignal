@@ -5,7 +5,11 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from alphasignal.api.dependencies import get_pipeline, get_retriever
+from alphasignal.api.dependencies import (
+    get_metrics_collector,
+    get_pipeline,
+    get_retriever,
+)
 from alphasignal.api.schemas import (
     BatchIngestRequest,
     BatchIngestResponse,
@@ -13,6 +17,7 @@ from alphasignal.api.schemas import (
     IngestResponse,
 )
 from alphasignal.ingestion.pipeline import IngestionPipeline
+from alphasignal.monitoring.metrics import MetricsCollector
 from alphasignal.retrieval.retriever import HybridRetriever
 
 router = APIRouter()
@@ -24,6 +29,7 @@ async def ingest_batch(
     body: BatchIngestRequest,
     pipeline: IngestionPipeline = Depends(get_pipeline),
     retriever: HybridRetriever = Depends(get_retriever),
+    metrics_collector: MetricsCollector = Depends(get_metrics_collector),
 ) -> BatchIngestResponse:
     """Ingest multiple tickers in sequence.
 
@@ -31,6 +37,7 @@ async def ingest_batch(
         body: Batch ingest request with list of tickers
         pipeline: Ingestion pipeline instance
         retriever: Hybrid retriever instance
+        metrics_collector: Metrics collector instance
 
     Returns:
         BatchIngestResponse with results for each ticker
@@ -53,6 +60,7 @@ async def ingest_batch(
             result = pipeline.full_ingest(ticker)
 
             ticker_latency = int((time.time() - ticker_start) * 1000)
+            metrics_collector.record_ingest(ticker_latency)
 
             results.append(
                 IngestResponse(
@@ -66,6 +74,7 @@ async def ingest_batch(
 
         except Exception as e:
             logger.error(f"Error batch ingesting {ticker}: {e}", exc_info=True)
+            metrics_collector.record_error()
 
             ticker_latency = int((time.time() - ticker_start) * 1000)
 
@@ -100,6 +109,7 @@ async def ingest(
     body: IngestRequest | None = None,
     pipeline: IngestionPipeline = Depends(get_pipeline),
     retriever: HybridRetriever = Depends(get_retriever),
+    metrics_collector: MetricsCollector = Depends(get_metrics_collector),
 ) -> IngestResponse:
     """Trigger full ingestion pipeline: ingest → chunk → embed → store.
 
@@ -109,6 +119,7 @@ async def ingest(
         body: Optional IngestRequest with filing parameters
         pipeline: Ingestion pipeline instance
         retriever: Hybrid retriever instance
+        metrics_collector: Metrics collector instance
 
     Returns:
         IngestResponse with ingestion and storage results
@@ -131,6 +142,7 @@ async def ingest(
         retriever.build_bm25_index()
 
         latency_ms = int((time.time() - start_time) * 1000)
+        metrics_collector.record_ingest(latency_ms)
 
         logger.info(
             f"Ingestion complete for {ticker}: "
@@ -147,6 +159,7 @@ async def ingest(
 
     except Exception as e:
         logger.error(f"Error ingesting ticker {ticker}: {e}", exc_info=True)
+        metrics_collector.record_error()
 
         latency_ms = int((time.time() - start_time) * 1000)
 
