@@ -86,7 +86,9 @@ async def lifespan(app: FastAPI):
 
     faiss_index_path = storage_config.get("faiss_index_path", "data/faiss_index")
     sqlite_db_path = storage_config.get("sqlite_db_path", "data/metadata.db")
-    embeddings_cache_path = storage_config.get("embeddings_cache_path", "data/embeddings_cache")
+    embeddings_cache_path = storage_config.get(
+        "embeddings_cache_path", "data/embeddings_cache"
+    )
 
     # Initialize vector store
     vector_store = VectorStore(faiss_index_path, dim=1536)
@@ -99,12 +101,19 @@ async def lifespan(app: FastAPI):
     logger.info(f"✓ Metadata store connected: {chunks_indexed} chunks indexed")
 
     # Initialize embedding cache and embedder
-    embedding_cache = EmbeddingCache(embeddings_cache_path)
+    embedding_cache = EmbeddingCache(f"{embeddings_cache_path}/cache.pkl")
     embedder = Embedder(config, embedding_cache)
     logger.info(f"✓ Embedder initialized: {config['embeddings']['model']}")
 
-    # Initialize ingestion pipeline
-    pipeline = IngestionPipeline(config)
+    # Initialize ingestion pipeline, sharing the vector/metadata stores and
+    # embedder with the retriever so newly ingested data is immediately
+    # visible to /query without a process restart
+    pipeline = IngestionPipeline(
+        config,
+        embedder=embedder,
+        vector_store=vector_store,
+        metadata_store=metadata_store,
+    )
     logger.info("✓ Ingestion pipeline initialized")
 
     # Initialize retriever
@@ -151,7 +160,7 @@ async def lifespan(app: FastAPI):
         sentiment_extractor=sentiment_extractor,
         evaluator=evaluator,
         metrics_collector=metrics_collector,
-        start_time=start_time
+        start_time=start_time,
     )
 
     # Store in app state
@@ -184,7 +193,7 @@ app = FastAPI(
     title="AlphaSignal",
     version="0.1.0",
     description="Financial RAG system for sentiment analysis and signal extraction",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add CORS middleware (allow all origins for development)
@@ -219,16 +228,9 @@ async def alphasignal_error_handler(request: Request, exc: AlphaSignalError):
     """Handle AlphaSignal custom errors and return ErrorResponse."""
     logger.error(f"AlphaSignal error [{exc.code}]: {exc.message}", exc_info=True)
 
-    error_response = ErrorResponse(
-        error=exc.message,
-        code=exc.code,
-        detail=exc.detail
-    )
+    error_response = ErrorResponse(error=exc.message, code=exc.code, detail=exc.detail)
 
-    return JSONResponse(
-        status_code=500,
-        content=error_response.model_dump()
-    )
+    return JSONResponse(status_code=500, content=error_response.model_dump())
 
 
 # Exception handler for unhandled errors
@@ -238,15 +240,10 @@ async def general_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
 
     error_response = ErrorResponse(
-        error="Internal Server Error",
-        code="INTERNAL_ERROR",
-        detail=str(exc)
+        error="Internal Server Error", code="INTERNAL_ERROR", detail=str(exc)
     )
 
-    return JSONResponse(
-        status_code=500,
-        content=error_response.model_dump()
-    )
+    return JSONResponse(status_code=500, content=error_response.model_dump())
 
 
 # Register routers

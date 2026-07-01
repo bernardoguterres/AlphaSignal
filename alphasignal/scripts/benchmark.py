@@ -21,8 +21,7 @@ from alphasignal.store.vector_store import VectorStore
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -75,8 +74,7 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
     storage_config = base_config.get("storage", {})
 
     vector_store = VectorStore(
-        storage_config.get("faiss_index_path", "data/faiss_index"),
-        dim=1536
+        storage_config.get("faiss_index_path", "data/faiss_index"), dim=1536
     )
     vector_store.load()
 
@@ -85,7 +83,7 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
     )
 
     embedding_cache = EmbeddingCache(
-        storage_config.get("embeddings_cache_path", "data/embeddings_cache")
+        f"{storage_config.get('embeddings_cache_path', 'data/embeddings_cache')}/cache.pkl"
     )
     embedder = Embedder(base_config, embedding_cache)
 
@@ -118,7 +116,9 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
     eval_results = evaluator.evaluate(retriever, top_k=10)
 
     elapsed_ms = int((time.time() - start_time) * 1000)
-    avg_latency_ms = elapsed_ms // eval_results.num_queries if eval_results.num_queries > 0 else 0
+    avg_latency_ms = (
+        elapsed_ms // eval_results.num_queries if eval_results.num_queries > 0 else 0
+    )
 
     logger.info(f"Evaluation complete in {elapsed_ms}ms")
 
@@ -128,7 +128,7 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
         "ndcg_at_5": round(eval_results.ndcg_at_5, 3),
         "hit_at_3": round(eval_results.hit_at_5, 3),  # Using hit@5 as proxy for hit@3
         "avg_latency_ms": avg_latency_ms,
-        "num_queries": eval_results.num_queries
+        "num_queries": eval_results.num_queries,
     }
 
 
@@ -159,7 +159,9 @@ def main():
     # Check annotations
     annotated = [q for q in golden_set if q.get("relevant_chunk_ids")]
     if len(annotated) < len(golden_set):
-        print(f"WARNING: Only {len(annotated)}/{len(golden_set)} questions are annotated!")
+        print(
+            f"WARNING: Only {len(annotated)}/{len(golden_set)} questions are annotated!"
+        )
         print("Run annotate_golden_set.py first for accurate results.")
         print()
 
@@ -171,23 +173,29 @@ def main():
             result = run_benchmark_config(config_spec, config, golden_set_path)
             results.append(result)
         except Exception as e:
-            logger.error(f"Error benchmarking {config_spec['name']}: {e}", exc_info=True)
-            results.append({
-                "config_name": config_spec["name"],
-                "mrr_at_10": 0.0,
-                "ndcg_at_5": 0.0,
-                "hit_at_3": 0.0,
-                "avg_latency_ms": 0,
-                "num_queries": 0,
-                "error": str(e)
-            })
+            logger.error(
+                f"Error benchmarking {config_spec['name']}: {e}", exc_info=True
+            )
+            results.append(
+                {
+                    "config_name": config_spec["name"],
+                    "mrr_at_10": 0.0,
+                    "ndcg_at_5": 0.0,
+                    "hit_at_3": 0.0,
+                    "avg_latency_ms": 0,
+                    "num_queries": 0,
+                    "error": str(e),
+                }
+            )
 
     # Print results table
     print("\n\n" + "=" * 80)
     print("BENCHMARK RESULTS")
     print("=" * 80)
     print()
-    print(f"{'Config':<45} | {'MRR@10':>7} | {'NDCG@5':>7} | {'Hit@3':>6} | {'Avg Latency':>12}")
+    print(
+        f"{'Config':<45} | {'MRR@10':>7} | {'NDCG@5':>7} | {'Hit@3':>6} | {'Avg Latency':>12}"
+    )
     print("-" * 80)
 
     for result in results:
@@ -204,12 +212,16 @@ def main():
     # Save results
     results_path = project_root / "data" / "benchmark_results.json"
     with open(results_path, "w") as f:
-        json.dump({
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "num_questions": len(golden_set),
-            "num_annotated": len(annotated),
-            "results": results
-        }, f, indent=2)
+        json.dump(
+            {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "num_questions": len(golden_set),
+                "num_annotated": len(annotated),
+                "results": results,
+            },
+            f,
+            indent=2,
+        )
 
     logger.info(f"Saved benchmark results to {results_path}")
 

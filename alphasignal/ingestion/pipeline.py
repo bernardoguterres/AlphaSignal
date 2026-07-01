@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class IngestResult:
     """Result of full ingestion pipeline."""
+
     ticker: str
     chunks_created: int
     chunks_embedded: int
@@ -30,11 +31,27 @@ class IngestResult:
 class IngestionPipeline:
     """Orchestrates the full ingestion pipeline."""
 
-    def __init__(self, config: dict):
+    def __init__(
+        self,
+        config: dict,
+        embedder: Embedder | None = None,
+        vector_store: VectorStore | None = None,
+        metadata_store: MetadataStore | None = None,
+    ):
         """Initialize ingestion pipeline.
 
         Args:
             config: Configuration dictionary
+            embedder: Shared Embedder instance. If omitted, a new one is
+                built from config (standalone/script usage). When run behind
+                the API, pass the same instance used by HybridRetriever so
+                the embedding cache is shared.
+            vector_store: Shared VectorStore instance. If omitted, a new one
+                is built from config. When run behind the API, pass the same
+                instance used by HybridRetriever so newly ingested vectors
+                are immediately visible to /query without a process restart.
+            metadata_store: Shared MetadataStore instance. If omitted, a new
+                one is built from config.
         """
         self.config = config
 
@@ -44,8 +61,7 @@ class IngestionPipeline:
 
         # Initialize EDGAR ingester
         self.edgar_ingester = EDGARIngester(
-            config=config,
-            download_dir=str(self.data_dir / "edgar_raw")
+            config=config, download_dir=str(self.data_dir / "edgar_raw")
         )
 
         # Initialize news ingester
@@ -54,45 +70,66 @@ class IngestionPipeline:
         # Initialize semantic chunker
         self.chunker = SemanticChunker(config=config)
 
-        # Initialize embedding cache and embedder
         storage_config = config.get("storage", {})
-        cache_path = storage_config.get("embeddings_cache_path", "data/embeddings_cache")
-        self.embedding_cache = EmbeddingCache(f"{cache_path}/cache.pkl")
-        self.embedder = Embedder(config=config, cache=self.embedding_cache)
 
-        # Initialize metadata store
-        db_path = storage_config.get("sqlite_db_path", "data/metadata.db")
-        self.metadata_store = MetadataStore(db_path)
+        # Initialize embedding cache and embedder (unless shared instance provided)
+        if embedder is not None:
+            self.embedder = embedder
+        else:
+            cache_path = storage_config.get(
+                "embeddings_cache_path", "data/embeddings_cache"
+            )
+            self.embedding_cache = EmbeddingCache(f"{cache_path}/cache.pkl")
+            self.embedder = Embedder(config=config, cache=self.embedding_cache)
 
-        # Initialize vector store
-        index_path = storage_config.get("faiss_index_path", "data/faiss_index")
-        self.vector_store = VectorStore(index_path)
-        self.vector_store.load()
+        # Initialize metadata store (unless shared instance provided)
+        if metadata_store is not None:
+            self.metadata_store = metadata_store
+        else:
+            db_path = storage_config.get("sqlite_db_path", "data/metadata.db")
+            self.metadata_store = MetadataStore(db_path)
 
-    def ingest_ticker_edgar(self, ticker: str) -> list[RawDocument]:
+        # Initialize vector store (unless shared instance provided)
+        if vector_store is not None:
+            self.vector_store = vector_store
+        else:
+            index_path = storage_config.get("faiss_index_path", "data/faiss_index")
+            self.vector_store = VectorStore(index_path)
+            self.vector_store.load()
+
+    def ingest_ticker_edgar(
+        self,
+        ticker: str,
+        filing_types: list[str] | None = None,
+        years_back: int | None = None,
+    ) -> list[RawDocument]:
         """Ingest SEC EDGAR filings for a ticker.
 
         Args:
             ticker: Stock ticker symbol
+            filing_types: Filing types to fetch. Defaults to config value.
+            years_back: Years of historical filings to fetch. Defaults to config value.
 
         Returns:
             List of RawDocument objects
         """
         logger.info(f"Starting EDGAR ingestion for {ticker}")
 
-        # Get filing parameters from config
+        # Get filing parameters from config, unless overridden by caller
         edgar_config = self.config.get("ingestion", {}).get("edgar", {})
-        filing_types = edgar_config.get("filing_types", ["10-K", "10-Q"])
-        years_back = edgar_config.get("years_back", 2)
+        if filing_types is None:
+            filing_types = edgar_config.get("filing_types", ["10-K", "10-Q"])
+        if years_back is None:
+            years_back = edgar_config.get("years_back", 2)
 
         # Fetch filings
         raw_docs = self.edgar_ingester.fetch_filings(
-            ticker=ticker,
-            filing_types=filing_types,
-            years_back=years_back
+            ticker=ticker, filing_types=filing_types, years_back=years_back
         )
 
-        logger.info(f"Completed EDGAR ingestion for {ticker}: {len(raw_docs)} documents")
+        logger.info(
+            f"Completed EDGAR ingestion for {ticker}: {len(raw_docs)} documents"
+        )
 
         return raw_docs
 
@@ -114,11 +151,18 @@ class IngestionPipeline:
 
         return articles
 
-    def ingest_ticker(self, ticker: str) -> tuple[list[RawDocument], list[RawArticle]]:
+    def ingest_ticker(
+        self,
+        ticker: str,
+        filing_types: list[str] | None = None,
+        years_back: int | None = None,
+    ) -> tuple[list[RawDocument], list[RawArticle]]:
         """Ingest both SEC filings and news articles for a ticker.
 
         Args:
             ticker: Stock ticker symbol
+            filing_types: Filing types to fetch. Defaults to config value.
+            years_back: Years of historical filings to fetch. Defaults to config value.
 
         Returns:
             Tuple of (raw_documents, raw_articles)
@@ -126,7 +170,9 @@ class IngestionPipeline:
         logger.info(f"Starting full ingestion for {ticker}")
 
         # Ingest EDGAR filings
-        raw_docs = self.ingest_ticker_edgar(ticker)
+        raw_docs = self.ingest_ticker_edgar(
+            ticker, filing_types=filing_types, years_back=years_back
+        )
 
         # Ingest news articles
         articles = self.ingest_ticker_news(ticker)
@@ -178,11 +224,18 @@ class IngestionPipeline:
 
         return all_chunks
 
-    def ingest_and_chunk_ticker(self, ticker: str) -> list[Chunk]:
+    def ingest_and_chunk_ticker(
+        self,
+        ticker: str,
+        filing_types: list[str] | None = None,
+        years_back: int | None = None,
+    ) -> list[Chunk]:
         """Ingest and chunk all content for a ticker.
 
         Args:
             ticker: Stock ticker symbol
+            filing_types: Filing types to fetch. Defaults to config value.
+            years_back: Years of historical filings to fetch. Defaults to config value.
 
         Returns:
             List of Chunk objects
@@ -190,7 +243,9 @@ class IngestionPipeline:
         logger.info(f"Starting full ingestion and chunking for {ticker}")
 
         # Ingest documents and articles
-        raw_docs, articles = self.ingest_ticker(ticker)
+        raw_docs, articles = self.ingest_ticker(
+            ticker, filing_types=filing_types, years_back=years_back
+        )
 
         # Chunk documents
         doc_chunks = self.chunk_documents(raw_docs)
@@ -236,11 +291,18 @@ class IngestionPipeline:
 
         logger.info(f"Stored {len(chunks)} chunks")
 
-    def full_ingest(self, ticker: str) -> IngestResult:
+    def full_ingest(
+        self,
+        ticker: str,
+        filing_types: list[str] | None = None,
+        years_back: int | None = None,
+    ) -> IngestResult:
         """Run complete ingestion pipeline: ingest → chunk → embed → store.
 
         Args:
             ticker: Stock ticker symbol
+            filing_types: Filing types to fetch. Defaults to config value.
+            years_back: Years of historical filings to fetch. Defaults to config value.
 
         Returns:
             IngestResult with counts
@@ -248,7 +310,9 @@ class IngestionPipeline:
         logger.info(f"Starting full ingestion pipeline for {ticker}")
 
         # Ingest and chunk
-        chunks = self.ingest_and_chunk_ticker(ticker)
+        chunks = self.ingest_and_chunk_ticker(
+            ticker, filing_types=filing_types, years_back=years_back
+        )
 
         # Embed
         embeddings = self.embedder.embed_chunks(chunks)
@@ -265,5 +329,5 @@ class IngestionPipeline:
             ticker=ticker,
             chunks_created=len(chunks),
             chunks_embedded=len(embeddings),
-            chunks_stored=len(chunks)
+            chunks_stored=len(chunks),
         )

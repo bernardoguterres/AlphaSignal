@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 async def ingest_batch(
     body: BatchIngestRequest,
     pipeline: IngestionPipeline = Depends(get_pipeline),
-    retriever: HybridRetriever = Depends(get_retriever)
+    retriever: HybridRetriever = Depends(get_retriever),
 ) -> BatchIngestResponse:
     """Ingest multiple tickers in sequence.
 
@@ -60,7 +60,7 @@ async def ingest_batch(
                     status="completed",
                     chunks_created=result.chunks_created,
                     documents_processed=result.chunks_stored,
-                    latency_ms=ticker_latency
+                    latency_ms=ticker_latency,
                 )
             )
 
@@ -75,7 +75,7 @@ async def ingest_batch(
                     status="failed",
                     chunks_created=0,
                     documents_processed=0,
-                    latency_ms=ticker_latency
+                    latency_ms=ticker_latency,
                 )
             )
 
@@ -90,10 +90,7 @@ async def ingest_batch(
         f"{len(results)} tickers processed in {total_latency_ms}ms"
     )
 
-    return BatchIngestResponse(
-        results=results,
-        total_latency_ms=total_latency_ms
-    )
+    return BatchIngestResponse(results=results, total_latency_ms=total_latency_ms)
 
 
 @router.post("/{ticker}", response_model=IngestResponse)
@@ -102,7 +99,7 @@ async def ingest(
     request: Request,
     body: IngestRequest | None = None,
     pipeline: IngestionPipeline = Depends(get_pipeline),
-    retriever: HybridRetriever = Depends(get_retriever)
+    retriever: HybridRetriever = Depends(get_retriever),
 ) -> IngestResponse:
     """Trigger full ingestion pipeline: ingest → chunk → embed → store.
 
@@ -122,8 +119,12 @@ async def ingest(
         ticker = ticker.upper()
         logger.info(f"Starting ingestion for {ticker}")
 
-        # Run full ingestion pipeline
-        result = pipeline.full_ingest(ticker)
+        # Run full ingestion pipeline, honoring per-request filing overrides if provided
+        filing_types = body.filing_types if body else None
+        years_back = body.years_back if body else None
+        result = pipeline.full_ingest(
+            ticker, filing_types=filing_types, years_back=years_back
+        )
 
         # Rebuild BM25 index after ingestion
         logger.info("Rebuilding BM25 index after ingestion...")
@@ -141,7 +142,7 @@ async def ingest(
             status="completed",
             chunks_created=result.chunks_created,
             documents_processed=result.chunks_stored,
-            latency_ms=latency_ms
+            latency_ms=latency_ms,
         )
 
     except Exception as e:
@@ -154,5 +155,5 @@ async def ingest(
             status="failed",
             chunks_created=0,
             documents_processed=0,
-            latency_ms=latency_ms
+            latency_ms=latency_ms,
         )

@@ -15,23 +15,25 @@ async def health_check(request: Request) -> HealthResponse:
     """Return health status of the AlphaSignal API."""
     uptime = time.time() - startup_time
 
-    # Check if we have vector store and metadata store (will be added by app)
+    # Check if we have vector store and metadata store (set on app.state.app_state at startup)
     faiss_loaded = False
     sqlite_connected = False
     chunks_indexed = 0
 
-    # Try to get pipeline from app state if available
-    if hasattr(request.app.state, 'pipeline'):
-        pipeline = request.app.state.pipeline
+    if hasattr(request.app.state, "app_state"):
+        app_state = request.app.state.app_state
         try:
             # Check vector store
-            if pipeline.vector_store and pipeline.vector_store.index is not None:
+            if (
+                app_state.retriever.vector_store
+                and app_state.retriever.vector_store.index is not None
+            ):
                 faiss_loaded = True
 
             # Check metadata store
-            if pipeline.metadata_store:
+            if app_state.retriever.metadata_store:
                 sqlite_connected = True
-                chunks_indexed = pipeline.metadata_store.count()
+                chunks_indexed = app_state.retriever.metadata_store.count()
         except Exception:
             pass  # If stores aren't initialized, keep defaults
 
@@ -41,5 +43,5 @@ async def health_check(request: Request) -> HealthResponse:
         faiss_index_loaded=faiss_loaded,
         sqlite_connected=sqlite_connected,
         chunks_indexed=chunks_indexed,
-        uptime_seconds=uptime
+        uptime_seconds=uptime,
     )

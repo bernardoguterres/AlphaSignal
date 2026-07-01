@@ -36,14 +36,11 @@ class EDGARIngester:
         self.downloader = Downloader(
             company_name="AlphaSignal",
             email_address="research@alphasignal.com",
-            download_folder=str(self.download_dir)
+            download_folder=str(self.download_dir),
         )
 
     def fetch_filings(
-        self,
-        ticker: str,
-        filing_types: list[str],
-        years_back: int
+        self, ticker: str, filing_types: list[str], years_back: int
     ) -> list[RawDocument]:
         """Download SEC filings for a ticker.
 
@@ -59,21 +56,25 @@ class EDGARIngester:
 
         for filing_type in filing_types:
             try:
-                logger.info(f"Downloading {filing_type} filings for {ticker}, {years_back} years back")
+                logger.info(
+                    f"Downloading {filing_type} filings for {ticker}, {years_back} years back"
+                )
 
                 # Download filings
                 self.downloader.get(
                     filing_type,
                     ticker,
                     after=f"{datetime.now().year - years_back}-01-01",
-                    download_details=True
+                    download_details=True,
                 )
 
                 # Respect rate limit
                 time.sleep(self.rate_limit_delay)
 
                 # Find downloaded filing files
-                ticker_dir = self.download_dir / "sec-edgar-filings" / ticker / filing_type
+                ticker_dir = (
+                    self.download_dir / "sec-edgar-filings" / ticker / filing_type
+                )
                 if not ticker_dir.exists():
                     logger.warning(f"No filings found for {ticker} {filing_type}")
                     continue
@@ -84,9 +85,11 @@ class EDGARIngester:
                         continue
 
                     # Find the primary filing document
-                    filing_files = list(filing_dir.glob("primary-document.*")) + \
-                                   list(filing_dir.glob("*.txt")) + \
-                                   list(filing_dir.glob("*.htm*"))
+                    filing_files = (
+                        list(filing_dir.glob("primary-document.*"))
+                        + list(filing_dir.glob("*.txt"))
+                        + list(filing_dir.glob("*.htm*"))
+                    )
 
                     if not filing_files:
                         logger.warning(f"No filing document found in {filing_dir}")
@@ -106,10 +109,10 @@ class EDGARIngester:
                     # Extract metadata from directory name (accession number)
                     accession_number = filing_dir.name
 
-                    # Try to extract dates from filing text (simplified)
-                    # In reality, these would come from the filing metadata
-                    filing_date = datetime.now().date()
-                    period_of_report = filing_date
+                    # Extract real filing date and period of report from the SEC header
+                    filing_date, period_of_report = self.extract_filing_dates(
+                        filing_dir
+                    )
 
                     # Create RawDocument
                     raw_doc = RawDocument(
@@ -120,11 +123,13 @@ class EDGARIngester:
                         source="SEC EDGAR",
                         sections=sections,
                         file_path=str(filing_path),
-                        accession_number=accession_number
+                        accession_number=accession_number,
                     )
                     raw_documents.append(raw_doc)
 
-                logger.info(f"Fetched {len(raw_documents)} {filing_type} filings for {ticker}")
+                logger.info(
+                    f"Fetched {len(raw_documents)} {filing_type} filings for {ticker}"
+                )
 
             except Exception as e:
                 logger.error(f"Error fetching {filing_type} filings for {ticker}: {e}")
@@ -132,6 +137,58 @@ class EDGARIngester:
                 continue
 
         return raw_documents
+
+    def extract_filing_dates(self, filing_dir: Path) -> tuple[date, date]:
+        """Extract the real filing date and period of report from the SEC SGML header.
+
+        sec-edgar-downloader saves a full-submission.txt alongside the primary
+        document, whose header contains lines like:
+            CONFORMED PERIOD OF REPORT:    20221231
+            FILED AS OF DATE:               20230203
+
+        Args:
+            filing_dir: Directory containing the downloaded filing
+
+        Returns:
+            Tuple of (filing_date, period_of_report). Falls back to today's
+            date for either field if it can't be found in the header.
+        """
+        today = datetime.now().date()
+        submission_path = filing_dir / "full-submission.txt"
+
+        if not submission_path.exists():
+            logger.warning(
+                f"No full-submission.txt in {filing_dir}, using today's date"
+            )
+            return today, today
+
+        try:
+            with open(submission_path, "r", encoding="utf-8", errors="ignore") as f:
+                header = f.read(4000)  # header appears within the first few KB
+        except Exception as e:
+            logger.warning(f"Could not read {submission_path}: {e}, using today's date")
+            return today, today
+
+        filed_match = re.search(r"FILED AS OF DATE:\s*(\d{8})", header)
+        period_match = re.search(r"CONFORMED PERIOD OF REPORT:\s*(\d{8})", header)
+
+        filing_date = (
+            datetime.strptime(filed_match.group(1), "%Y%m%d").date()
+            if filed_match
+            else today
+        )
+        period_of_report = (
+            datetime.strptime(period_match.group(1), "%Y%m%d").date()
+            if period_match
+            else filing_date
+        )
+
+        if not filed_match:
+            logger.warning(
+                f"Could not find FILED AS OF DATE in {submission_path}, using today's date"
+            )
+
+        return filing_date, period_of_report
 
     def parse_filing(self, filing_path: Path) -> str:
         """Parse a SEC filing and extract clean text.
@@ -143,16 +200,16 @@ class EDGARIngester:
             Cleaned text content, or empty string if parsing fails
         """
         try:
-            with open(filing_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(filing_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
             # Determine file type
-            if filing_path.suffix.lower() in ['.htm', '.html']:
+            if filing_path.suffix.lower() in [".htm", ".html"]:
                 # Parse HTML
-                soup = BeautifulSoup(content, 'lxml')
+                soup = BeautifulSoup(content, "lxml")
 
                 # Remove unwanted tags
-                for tag in soup.find_all(['script', 'style', 'table']):
+                for tag in soup.find_all(["script", "style", "table"]):
                     tag.decompose()
 
                 # Extract text
@@ -163,17 +220,21 @@ class EDGARIngester:
                 text = content
 
                 # Remove SEC header (everything before "FORM TYPE:" or "SECURITIES AND EXCHANGE")
-                lines = text.split('\n')
+                lines = text.split("\n")
                 start_idx = 0
                 for i, line in enumerate(lines):
-                    if re.search(r'(FORM TYPE:|SECURITIES AND EXCHANGE COMMISSION)', line, re.IGNORECASE):
+                    if re.search(
+                        r"(FORM TYPE:|SECURITIES AND EXCHANGE COMMISSION)",
+                        line,
+                        re.IGNORECASE,
+                    ):
                         start_idx = i
                         break
-                text = '\n'.join(lines[start_idx:])
+                text = "\n".join(lines[start_idx:])
 
             # Normalize whitespace
-            text = re.sub(r'\s+', ' ', text)
-            text = re.sub(r'\n\s*\n', '\n\n', text)
+            text = re.sub(r"\s+", " ", text)
+            text = re.sub(r"\n\s*\n", "\n\n", text)
             text = text.strip()
 
             # Check minimum length
@@ -203,20 +264,20 @@ class EDGARIngester:
             if doc_type == "10-K":
                 # Define section patterns for 10-K
                 section_patterns = {
-                    "item_1": r'item\s+1[\.\s:]+(?:business|description)',
-                    "item_1a": r'item\s+1a[\.\s:]+risk\s+factors',
-                    "item_7": r'item\s+7[\.\s:]+management',
-                    "item_7a": r'item\s+7a[\.\s:]+quantitative',
-                    "item_8": r'item\s+8[\.\s:]+financial\s+statements',
+                    "item_1": r"item\s+1[\.\s:]+(?:business|description)",
+                    "item_1a": r"item\s+1a[\.\s:]+risk\s+factors",
+                    "item_7": r"item\s+7[\.\s:]+management",
+                    "item_7a": r"item\s+7a[\.\s:]+quantitative",
+                    "item_8": r"item\s+8[\.\s:]+financial\s+statements",
                 }
 
             elif doc_type == "10-Q":
                 # Define section patterns for 10-Q
                 section_patterns = {
-                    "item_1": r'item\s+1[\.\s:]+financial\s+statements',
-                    "item_2": r'item\s+2[\.\s:]+management',
-                    "item_3": r'item\s+3[\.\s:]+quantitative',
-                    "item_4": r'item\s+4[\.\s:]+controls',
+                    "item_1": r"item\s+1[\.\s:]+financial\s+statements",
+                    "item_2": r"item\s+2[\.\s:]+management",
+                    "item_3": r"item\s+3[\.\s:]+quantitative",
+                    "item_4": r"item\s+4[\.\s:]+controls",
                 }
 
             else:
@@ -250,7 +311,9 @@ class EDGARIngester:
 
             else:
                 # Couldn't find standard sections - use full text
-                logger.info(f"Could not extract standard sections from {doc_type}, using full text")
+                logger.info(
+                    f"Could not extract standard sections from {doc_type}, using full text"
+                )
                 sections = {"full_text": text}
 
         except Exception as e:
