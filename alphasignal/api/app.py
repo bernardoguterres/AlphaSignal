@@ -23,7 +23,6 @@ from alphasignal.generation.generator import RAGGenerator
 from alphasignal.generation.sentiment import SentimentExtractor
 from alphasignal.ingestion.pipeline import IngestionPipeline
 from alphasignal.monitoring.metrics import MetricsCollector
-from alphasignal.retrieval.evaluator import RetrievalEvaluator
 from alphasignal.retrieval.reranker import CrossEncoderReranker
 from alphasignal.retrieval.retriever import HybridRetriever
 from alphasignal.store.metadata_store import MetadataStore
@@ -137,15 +136,6 @@ async def lifespan(app: FastAPI):
     sentiment_extractor = SentimentExtractor(config)
     logger.info(f"✓ Sentiment extractor initialized")
 
-    # Initialize evaluator (optional - only if golden set exists)
-    evaluator = None
-    golden_set_path = Path("data/golden_set.json")
-    if golden_set_path.exists():
-        evaluator = RetrievalEvaluator(str(golden_set_path))
-        logger.info(f"✓ Evaluator initialized with golden set")
-    else:
-        logger.info("⚠ No golden set found, evaluator disabled")
-
     # Initialize metrics collector
     metrics_collector = MetricsCollector()
     logger.info("✓ Metrics collector initialized")
@@ -158,7 +148,6 @@ async def lifespan(app: FastAPI):
         reranker=reranker,
         generator=generator,
         sentiment_extractor=sentiment_extractor,
-        evaluator=evaluator,
         metrics_collector=metrics_collector,
         start_time=start_time,
     )
@@ -176,7 +165,6 @@ async def lifespan(app: FastAPI):
     logger.info(f"BM25 documents:      {bm25_docs}")
     logger.info(f"Embedding model:     {config['embeddings']['model']}")
     logger.info(f"Generation model:    {config['generation']['model']}")
-    logger.info(f"API host:            {config['api']['host']}:{config['api']['port']}")
     logger.info(f"Startup time:        {elapsed:.2f}s")
     logger.info("=" * 80)
     logger.info("✓ AlphaSignal ready to serve requests")

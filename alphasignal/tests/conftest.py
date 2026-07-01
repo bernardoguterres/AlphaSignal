@@ -60,7 +60,6 @@ def mock_config():
             "dense_candidates": 10,
             "sparse_candidates": 10,
             "rerank_candidates": 5,
-            "final_top_k": 3,
             "hybrid_weights": {"bm25": 0.5, "dense": 0.5},
         },
         "generation": {
@@ -73,10 +72,5 @@ def mock_config():
             "faiss_index_path": "test_data/faiss_index",
             "sqlite_db_path": "test_data/metadata.db",
             "embeddings_cache_path": "test_data/embeddings_cache",
-        },
-        "api": {
-            "host": "127.0.0.1",
-            "port": 8001,
-            "reload": False,
         },
     }

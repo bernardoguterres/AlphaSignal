@@ -7,11 +7,9 @@ from alphasignal.generation.generator import RAGGenerator
 from alphasignal.generation.sentiment import SentimentExtractor
 from alphasignal.ingestion.pipeline import IngestionPipeline
 from alphasignal.monitoring.metrics import MetricsCollector
-from alphasignal.retrieval.evaluator import RetrievalEvaluator
 from alphasignal.retrieval.reranker import CrossEncoderReranker
 from alphasignal.retrieval.retriever import HybridRetriever
 from alphasignal.store.metadata_store import MetadataStore
-from alphasignal.store.vector_store import VectorStore
 
 
 def get_app_state(request: Request) -> AppState:
@@ -115,32 +113,6 @@ def get_metadata_store(request: Request) -> MetadataStore:
     """
     state = get_app_state(request)
     return state.pipeline.metadata_store
-
-
-def get_vector_store(request: Request) -> VectorStore:
-    """Get vector store.
-
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        VectorStore instance
-    """
-    state = get_app_state(request)
-    return state.pipeline.vector_store
-
-
-def get_evaluator(request: Request) -> RetrievalEvaluator | None:
-    """Get retrieval evaluator (optional).
-
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        RetrievalEvaluator instance or None if not available
-    """
-    state = get_app_state(request)
-    return state.evaluator
 
 
 def get_metrics_collector(request: Request) -> MetricsCollector:

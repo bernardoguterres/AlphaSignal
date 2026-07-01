@@ -67,7 +67,7 @@ async def ingest_batch(
                     ticker=ticker,
                     status="completed",
                     chunks_created=result.chunks_created,
-                    documents_processed=result.chunks_stored,
+                    chunks_stored=result.chunks_stored,
                     latency_ms=ticker_latency,
                 )
             )
@@ -83,7 +83,7 @@ async def ingest_batch(
                     ticker=ticker,
                     status="failed",
                     chunks_created=0,
-                    documents_processed=0,
+                    chunks_stored=0,
                     latency_ms=ticker_latency,
                 )
             )
@@ -153,7 +153,7 @@ async def ingest(
             ticker=ticker,
             status="completed",
             chunks_created=result.chunks_created,
-            documents_processed=result.chunks_stored,
+            chunks_stored=result.chunks_stored,
             latency_ms=latency_ms,
         )
 
@@ -167,6 +167,6 @@ async def ingest(
             ticker=ticker,
             status="failed",
             chunks_created=0,
-            documents_processed=0,
+            chunks_stored=0,
             latency_ms=latency_ms,
         )

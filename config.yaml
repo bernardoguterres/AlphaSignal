@@ -40,7 +40,6 @@ retrieval:
   dense_candidates: 50
   sparse_candidates: 50
   rerank_candidates: 20
-  final_top_k: 5
   hybrid_weights:
     bm25: 0.4
     dense: 0.6
@@ -55,8 +54,3 @@ storage:
   faiss_index_path: "data/faiss_index"
   sqlite_db_path: "data/metadata.db"
   embeddings_cache_path: "data/embeddings_cache"
-
-api:
-  host: "0.0.0.0"
-  port: 8000
-  reload: true

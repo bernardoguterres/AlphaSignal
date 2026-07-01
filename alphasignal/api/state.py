@@ -6,7 +6,6 @@ from alphasignal.generation.generator import RAGGenerator
 from alphasignal.generation.sentiment import SentimentExtractor
 from alphasignal.ingestion.pipeline import IngestionPipeline
 from alphasignal.monitoring.metrics import MetricsCollector
-from alphasignal.retrieval.evaluator import RetrievalEvaluator
 from alphasignal.retrieval.reranker import CrossEncoderReranker
 from alphasignal.retrieval.retriever import HybridRetriever
 
@@ -21,6 +20,5 @@ class AppState:
     reranker: CrossEncoderReranker
     generator: RAGGenerator
     sentiment_extractor: SentimentExtractor
-    evaluator: RetrievalEvaluator | None
     metrics_collector: MetricsCollector
     start_time: float

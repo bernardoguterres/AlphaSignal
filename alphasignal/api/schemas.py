@@ -75,7 +75,7 @@ class IngestResponse(BaseModel):
     ticker: str
     status: str
     chunks_created: int
-    documents_processed: int
+    chunks_stored: int
     latency_ms: int
 
 

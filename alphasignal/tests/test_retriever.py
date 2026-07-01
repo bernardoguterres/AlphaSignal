@@ -31,12 +31,8 @@ def test_config():
             "dense_candidates": 10,
             "sparse_candidates": 10,
             "rerank_candidates": 5,
-            "final_top_k": 3,
-            "hybrid_weights": {
-                "bm25": 0.4,
-                "dense": 0.6
-            }
-        }
+            "hybrid_weights": {"bm25": 0.4, "dense": 0.6},
+        },
     }
 
 
@@ -56,7 +52,7 @@ def test_chunks():
             date=today - timedelta(days=i),
             url=None,
             chunk_index=i,
-            total_chunks=5
+            total_chunks=5,
         )
         for i in range(5)
     ] + [
@@ -68,10 +64,10 @@ def test_chunks():
             doc_type="10-K",
             source="SEC EDGAR",
             section="item_7",
-            date=today - timedelta(days=i+10),
+            date=today - timedelta(days=i + 10),
             url=None,
             chunk_index=i,
-            total_chunks=3
+            total_chunks=3,
         )
         for i in range(3)
     ]
@@ -91,7 +87,7 @@ def hybrid_retriever(test_config, test_chunks, tmp_path):
     cache = EmbeddingCache(str(tmp_path / "cache.pkl"))
 
     # Mock embedder
-    with patch('alphasignal.embeddings.embedder.OpenAI'):
+    with patch("alphasignal.embeddings.embedder.OpenAI"):
         embedder = Embedder(test_config, cache)
 
         # Mock embed_texts to return random embeddings
@@ -154,10 +150,7 @@ def test_date_filter_limits_results(hybrid_retriever):
     date_to = today
 
     results = hybrid_retriever.retrieve(
-        query,
-        date_from=date_from,
-        date_to=date_to,
-        top_k=10
+        query, date_from=date_from, date_to=date_to, top_k=10
     )
 
     # All results should be within date range
@@ -223,13 +216,13 @@ def test_reranker_sorts_by_final_score():
             dense_score=0.5,
             sparse_score=0.5,
             hybrid_score=0.5,
-            final_score=None
+            final_score=None,
         )
         for i in range(3)
     ]
 
     # Mock the cross-encoder model
-    with patch('alphasignal.retrieval.reranker.CrossEncoder') as MockEncoder:
+    with patch("alphasignal.retrieval.reranker.CrossEncoder") as MockEncoder:
         mock_model = MagicMock()
         # Return decreasing scores so reranking changes order
         mock_model.predict.return_value = [0.9, 0.5, 0.7]
@@ -324,18 +317,19 @@ def test_evaluator_with_golden_set(tmp_path, hybrid_retriever):
         {
             "query": "Apple revenue growth",
             "relevant_chunk_ids": ["aapl_10k_test_0000", "aapl_10k_test_0001"],
-            "ticker": "AAPL"
+            "ticker": "AAPL",
         },
         {
             "query": "Microsoft cloud performance",
             "relevant_chunk_ids": ["msft_10k_test_0000"],
-            "ticker": "MSFT"
-        }
+            "ticker": "MSFT",
+        },
     ]
 
     golden_path = tmp_path / "golden.json"
     import json
-    with open(golden_path, 'w') as f:
+
+    with open(golden_path, "w") as f:
         json.dump(golden_set, f)
 
     # Create evaluator

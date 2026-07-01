@@ -38,10 +38,11 @@ def client(tmp_path):
         config = yaml.safe_load(f)
 
     # Mock all external dependencies
-    with patch("alphasignal.embeddings.embedder.OpenAI"), \
-         patch("alphasignal.generation.generator.OpenAI"), \
-         patch("alphasignal.generation.sentiment.OpenAI"), \
-         patch("alphasignal.retrieval.reranker.CrossEncoder"):
+    with patch("alphasignal.embeddings.embedder.OpenAI"), patch(
+        "alphasignal.generation.generator.OpenAI"
+    ), patch("alphasignal.generation.sentiment.OpenAI"), patch(
+        "alphasignal.retrieval.reranker.CrossEncoder"
+    ):
 
         # Create test client without lifespan
         test_app = FastAPI()
@@ -79,9 +80,8 @@ def client(tmp_path):
             reranker=reranker,
             generator=generator,
             sentiment_extractor=sentiment_extractor,
-            evaluator=None,
             metrics_collector=metrics_collector,
-            start_time=time.time()
+            start_time=time.time(),
         )
 
         # Attach to app
@@ -90,7 +90,9 @@ def client(tmp_path):
         # Register routes
         test_app.include_router(health.router, prefix="/health", tags=["health"])
         test_app.include_router(query.router, prefix="/query", tags=["query"])
-        test_app.include_router(sentiment.router, prefix="/sentiment", tags=["sentiment"])
+        test_app.include_router(
+            sentiment.router, prefix="/sentiment", tags=["sentiment"]
+        )
         test_app.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
         test_app.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
 
@@ -113,7 +115,7 @@ def mock_retrieved_chunks():
             dense_score=0.95,
             sparse_score=0.87,
             hybrid_score=0.92,
-            final_score=0.94
+            final_score=0.94,
         ),
         RetrievedChunk(
             chunk_id="aapl_10k_test_0002",
@@ -127,7 +129,7 @@ def mock_retrieved_chunks():
             dense_score=0.89,
             sparse_score=0.82,
             hybrid_score=0.86,
-            final_score=0.88
+            final_score=0.88,
         ),
         RetrievedChunk(
             chunk_id="aapl_10k_test_0003",
@@ -141,15 +143,17 @@ def mock_retrieved_chunks():
             dense_score=0.78,
             sparse_score=0.75,
             hybrid_score=0.77,
-            final_score=0.80
-        )
+            final_score=0.80,
+        ),
     ]
 
 
 def test_query_endpoint_returns_200(client, mock_retrieved_chunks):
     """Test that query endpoint returns 200 with valid response."""
     # Mock retriever
-    with patch.object(client.app.state.app_state.retriever, "retrieve") as mock_retrieve:
+    with patch.object(
+        client.app.state.app_state.retriever, "retrieve"
+    ) as mock_retrieve:
         mock_retrieve.return_value = mock_retrieved_chunks
 
         # Mock reranker
@@ -157,13 +161,15 @@ def test_query_endpoint_returns_200(client, mock_retrieved_chunks):
             mock_rerank.return_value = mock_retrieved_chunks[:2]  # Return top 2
 
             # Mock generator
-            with patch.object(client.app.state.app_state.generator, "generate") as mock_generate:
+            with patch.object(
+                client.app.state.app_state.generator, "generate"
+            ) as mock_generate:
                 mock_generate.return_value = GenerationResult(
                     answer="Apple reported revenue of $394.3 billion [Source 1].",
                     cited_chunks=[mock_retrieved_chunks[0]],
                     prompt_tokens=100,
                     completion_tokens=50,
-                    model="gpt-4o-mini"
+                    model="gpt-4o-mini",
                 )
 
                 # Make request
@@ -172,8 +178,8 @@ def test_query_endpoint_returns_200(client, mock_retrieved_chunks):
                     json={
                         "query": "What is Apple revenue?",
                         "ticker_filter": ["AAPL"],
-                        "top_k": 5
-                    }
+                        "top_k": 5,
+                    },
                 )
 
                 # Assertions
@@ -188,9 +194,13 @@ def test_query_endpoint_returns_200(client, mock_retrieved_chunks):
 def test_query_endpoint_returns_citations(client, mock_retrieved_chunks):
     """Test that query endpoint returns citations."""
     # Mock retriever, reranker, and generator
-    with patch.object(client.app.state.app_state.retriever, "retrieve") as mock_retrieve, \
-         patch.object(client.app.state.app_state.reranker, "rerank") as mock_rerank, \
-         patch.object(client.app.state.app_state.generator, "generate") as mock_generate:
+    with patch.object(
+        client.app.state.app_state.retriever, "retrieve"
+    ) as mock_retrieve, patch.object(
+        client.app.state.app_state.reranker, "rerank"
+    ) as mock_rerank, patch.object(
+        client.app.state.app_state.generator, "generate"
+    ) as mock_generate:
 
         mock_retrieve.return_value = mock_retrieved_chunks
         mock_rerank.return_value = mock_retrieved_chunks[:2]
@@ -199,12 +209,11 @@ def test_query_endpoint_returns_citations(client, mock_retrieved_chunks):
             cited_chunks=[mock_retrieved_chunks[0], mock_retrieved_chunks[1]],
             prompt_tokens=100,
             completion_tokens=50,
-            model="gpt-4o-mini"
+            model="gpt-4o-mini",
         )
 
         response = client.post(
-            "/query/",
-            json={"query": "What is Apple revenue?", "top_k": 5}
+            "/query/", json={"query": "What is Apple revenue?", "top_k": 5}
         )
 
         assert response.status_code == 200
@@ -217,12 +226,13 @@ def test_query_endpoint_returns_citations(client, mock_retrieved_chunks):
 def test_query_endpoint_handles_empty_retrieval(client):
     """Test that query endpoint handles no results gracefully."""
     # Mock retriever to return empty list
-    with patch.object(client.app.state.app_state.retriever, "retrieve") as mock_retrieve:
+    with patch.object(
+        client.app.state.app_state.retriever, "retrieve"
+    ) as mock_retrieve:
         mock_retrieve.return_value = []
 
         response = client.post(
-            "/query/",
-            json={"query": "What is Apple revenue?", "top_k": 5}
+            "/query/", json={"query": "What is Apple revenue?", "top_k": 5}
         )
 
         assert response.status_code == 200
@@ -249,14 +259,13 @@ def test_sentiment_endpoint_returns_200(client):
             date=date(2024, 10, 31),
             url=None,
             chunk_index=i,
-            total_chunks=5
+            total_chunks=5,
         )
         for i in range(5)
     ]
 
     with patch.object(
-        client.app.state.app_state.pipeline.metadata_store,
-        "get_chunks_by_ticker"
+        client.app.state.app_state.pipeline.metadata_store, "get_chunks_by_ticker"
     ) as mock_get_chunks:
         mock_get_chunks.return_value = mock_chunks
 
@@ -271,13 +280,12 @@ def test_sentiment_endpoint_returns_200(client):
                 doc_type="10-K",
                 key_positive=["growth", "strong"],
                 key_negative=[],
-                summary="Positive sentiment"
+                summary="Positive sentiment",
             )
         ]
 
         with patch.object(
-            client.app.state.app_state.sentiment_extractor,
-            "extract_ticker_sentiment"
+            client.app.state.app_state.sentiment_extractor, "extract_ticker_sentiment"
         ) as mock_extract:
             mock_extract.return_value = mock_signals
 
@@ -309,21 +317,14 @@ def test_ingest_endpoint_triggers_pipeline(client):
     """Test that ingest endpoint triggers pipeline."""
     # Mock pipeline
     with patch.object(
-        client.app.state.app_state.pipeline,
-        "full_ingest"
+        client.app.state.app_state.pipeline, "full_ingest"
     ) as mock_ingest:
         mock_ingest.return_value = IngestResult(
-            ticker="AAPL",
-            chunks_created=10,
-            chunks_embedded=10,
-            chunks_stored=10
+            ticker="AAPL", chunks_created=10, chunks_embedded=10, chunks_stored=10
         )
 
         # Mock BM25 rebuild
-        with patch.object(
-            client.app.state.app_state.retriever,
-            "build_bm25_index"
-        ):
+        with patch.object(client.app.state.app_state.retriever, "build_bm25_index"):
             response = client.post("/ingest/AAPL")
 
             assert response.status_code == 200
@@ -338,24 +339,16 @@ def test_ingest_batch_processes_all_tickers(client):
     """Test that batch ingest processes all tickers."""
     # Mock pipeline
     with patch.object(
-        client.app.state.app_state.pipeline,
-        "full_ingest"
+        client.app.state.app_state.pipeline, "full_ingest"
     ) as mock_ingest:
         mock_ingest.return_value = IngestResult(
-            ticker="TEST",
-            chunks_created=5,
-            chunks_embedded=5,
-            chunks_stored=5
+            ticker="TEST", chunks_created=5, chunks_embedded=5, chunks_stored=5
         )
 
         # Mock BM25 rebuild
-        with patch.object(
-            client.app.state.app_state.retriever,
-            "build_bm25_index"
-        ):
+        with patch.object(client.app.state.app_state.retriever, "build_bm25_index"):
             response = client.post(
-                "/ingest/batch",
-                json={"tickers": ["AAPL", "MSFT", "GOOGL"]}
+                "/ingest/batch", json={"tickers": ["AAPL", "MSFT", "GOOGL"]}
             )
 
             assert response.status_code == 200
@@ -367,9 +360,13 @@ def test_ingest_batch_processes_all_tickers(client):
 def test_all_responses_include_latency_ms(client, mock_retrieved_chunks):
     """Test that all endpoints return latency_ms."""
     # Test query endpoint
-    with patch.object(client.app.state.app_state.retriever, "retrieve") as mock_retrieve, \
-         patch.object(client.app.state.app_state.reranker, "rerank") as mock_rerank, \
-         patch.object(client.app.state.app_state.generator, "generate") as mock_generate:
+    with patch.object(
+        client.app.state.app_state.retriever, "retrieve"
+    ) as mock_retrieve, patch.object(
+        client.app.state.app_state.reranker, "rerank"
+    ) as mock_rerank, patch.object(
+        client.app.state.app_state.generator, "generate"
+    ) as mock_generate:
 
         mock_retrieve.return_value = mock_retrieved_chunks
         mock_rerank.return_value = mock_retrieved_chunks[:2]
@@ -378,12 +375,11 @@ def test_all_responses_include_latency_ms(client, mock_retrieved_chunks):
             cited_chunks=[],
             prompt_tokens=10,
             completion_tokens=10,
-            model="gpt-4o-mini"
+            model="gpt-4o-mini",
         )
 
         query_response = client.post(
-            "/query/",
-            json={"query": "What is the revenue?", "top_k": 5}
+            "/query/", json={"query": "What is the revenue?", "top_k": 5}
         )
         assert "latency_ms" in query_response.json()
         assert query_response.json()["latency_ms"] >= 0
@@ -403,18 +399,18 @@ def test_all_responses_include_latency_ms(client, mock_retrieved_chunks):
             date=date.today(),
             url=None,
             chunk_index=0,
-            total_chunks=1
+            total_chunks=1,
         )
     ]
 
     with patch.object(
         client.app.state.app_state.pipeline.metadata_store,
         "get_chunks_by_ticker",
-        return_value=mock_chunks
+        return_value=mock_chunks,
     ), patch.object(
         client.app.state.app_state.sentiment_extractor,
         "extract_ticker_sentiment",
-        return_value=[]
+        return_value=[],
     ):
         sentiment_response = client.get("/sentiment/AAPL")
         assert "latency_ms" in sentiment_response.json()
@@ -424,11 +420,8 @@ def test_all_responses_include_latency_ms(client, mock_retrieved_chunks):
     with patch.object(
         client.app.state.app_state.pipeline,
         "full_ingest",
-        return_value=IngestResult("AAPL", 5, 5, 5)
-    ), patch.object(
-        client.app.state.app_state.retriever,
-        "build_bm25_index"
-    ):
+        return_value=IngestResult("AAPL", 5, 5, 5),
+    ), patch.object(client.app.state.app_state.retriever, "build_bm25_index"):
         ingest_response = client.post("/ingest/AAPL")
         assert "latency_ms" in ingest_response.json()
         assert ingest_response.json()["latency_ms"] >= 0

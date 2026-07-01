@@ -4,6 +4,7 @@ import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from openai import OpenAIError
 
 from alphasignal.api.dependencies import (
     get_config,
@@ -129,8 +130,7 @@ async def query(
     except Exception as e:
         logger.error(f"Error processing query: {e}", exc_info=True)
         metrics_collector.record_error()
-        # Check if it's an OpenAI error
-        if "openai" in str(type(e).__module__).lower():
+        if isinstance(e, OpenAIError):
             raise HTTPException(
                 status_code=503, detail="AI service temporarily unavailable"
             )
