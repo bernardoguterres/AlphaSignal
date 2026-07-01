@@ -118,6 +118,22 @@ uvicorn alphasignal.api.app:app --reload --host 0.0.0.0 --port 8000
 
 The API will be available at `http://localhost:8000`. Visit `http://localhost:8000/docs` for interactive API documentation.
 
+## Deployment (Railway)
+
+`Dockerfile`, `Procfile`, and `railway.toml` are included for deploying alongside AlphaLive.
+
+```bash
+railway up
+```
+
+Railway assigns `$PORT` at runtime; the Dockerfile and Procfile both bind to it automatically.
+
+**Required env vars:** `OPENAI_API_KEY`
+
+**Persistent storage:** `data/` (FAISS index, SQLite metadata, embedding cache) is excluded from the Docker image via `.dockerignore` and is empty on every fresh container. **Mount a Railway Volume at `/app/data`** before ingesting the corpus, or every redeploy silently wipes it and `/sentiment/{ticker}` goes back to returning empty signals for every ticker.
+
+**Wiring up AlphaLive:** once deployed, set `ALPHASIGNAL_URL` to this service's Railway-assigned URL (and `ALPHASIGNAL_ENABLED=true`) in AlphaLive's environment so the sentiment gate can actually reach it — the default `http://localhost:8000` only works when both services run on the same machine.
+
 ## API Reference
 
 ### POST /query
