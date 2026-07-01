@@ -1,6 +1,6 @@
 # AlphaSignal
 
-AlphaSignal is a production-grade financial RAG (Retrieval-Augmented Generation) system that ingests SEC EDGAR filings and financial news, chunks documents semantically, stores embeddings in FAISS, retrieves relevant context using hybrid search (BM25 + dense retrieval), reranks with a cross-encoder, and generates answers with citations. It also extracts sentiment signals from financial documents and exposes them via a FastAPI REST API for integration with backtesting platforms like AlphaLab.
+AlphaSignal is a production-grade financial RAG (Retrieval-Augmented Generation) system that ingests SEC EDGAR filings and financial news, chunks documents semantically, stores embeddings in FAISS, retrieves relevant context using hybrid search (BM25 + dense retrieval), reranks with a cross-encoder, and generates answers with citations. It also extracts sentiment signals from financial documents and exposes them via a FastAPI REST API — currently consumed by [AlphaLive](https://github.com/bernardoguterres/AlphaLive)'s pre-execution sentiment gate (see [System Integration](#system-integration) below).
 
 ## Architecture
 
@@ -28,7 +28,6 @@ flowchart TD
     Q --> S[Answer + Citations]
     R --> T[Sentiment Signals]
     T --> U[AlphaLive Pre-execution Gate<br/>Sentiment + DeepLOB LOB Filter]
-    T --> UA[AlphaLab Integration<br/>Strategy Features]
     S --> V[FastAPI Response<br/>/query endpoint]
     T --> W[FastAPI Response<br/>/sentiment endpoint]
     
@@ -39,7 +38,6 @@ flowchart TD
     style O fill:#fbbf24
     style Q fill:#3b82f6
     style U fill:#ec4899
-    style UA fill:#ec4899
 ```
 
 ## Quickstart
@@ -136,6 +134,8 @@ Railway assigns `$PORT` at runtime; the Dockerfile and Procfile both bind to it 
 
 ## API Reference
 
+> The examples below match `alphasignal/api/schemas.py` exactly (verified 2026-07-01) — the response shapes shown here are what the API actually returns, not an aspirational spec.
+
 ### POST /query
 
 Query the RAG system with a financial question.
@@ -147,7 +147,7 @@ curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
   -d '{
     "query": "What were Apple'\''s key revenue drivers in Q4 2024?",
-    "ticker": "AAPL",
+    "ticker_filter": ["AAPL"],
     "top_k": 5
   }'
 ```
@@ -157,26 +157,26 @@ curl -X POST http://localhost:8000/query \
 ```json
 {
   "query": "What were Apple's key revenue drivers in Q4 2024?",
-  "answer": "Apple's Q4 2024 revenue was primarily driven by strong iPhone sales, particularly the iPhone 15 lineup, along with continued growth in Services revenue including App Store, iCloud, and Apple TV+. Mac sales also saw a boost from the new M3 chip releases.",
+  "answer": "Apple's Q4 2024 revenue was primarily driven by strong iPhone sales, particularly the iPhone 15 lineup, along with continued growth in Services revenue including App Store, iCloud, and Apple TV+.",
   "citations": [
     {
       "chunk_id": "AAPL_10-K_2024-09-28_001",
-      "text": "iPhone revenue increased 12% year-over-year...",
+      "ticker": "AAPL",
+      "source": "SEC EDGAR",
       "date": "2024-09-28",
-      "doc_type": "10-K",
-      "section": "Revenue",
+      "excerpt": "iPhone revenue increased 12% year-over-year...",
       "relevance_score": 0.92
     }
   ],
-  "ticker": "AAPL",
-  "num_chunks_retrieved": 5,
-  "latency_ms": 342
+  "latency_ms": 342,
+  "retrieval_scores": [0.92, 0.87, 0.81],
+  "model_used": "gpt-4o-mini"
 }
 ```
 
 ### GET /sentiment/{ticker}
 
-Get all sentiment signals for a specific ticker.
+Get all sentiment signals for a specific ticker. Optional `date_from`/`date_to` query params filter by document date.
 
 **Request:**
 
@@ -193,20 +193,23 @@ curl http://localhost:8000/sentiment/AAPL
     {
       "ticker": "AAPL",
       "date": "2024-09-28",
+      "score": 0.75,
+      "confidence": 0.82,
+      "source": "SEC EDGAR",
       "doc_type": "10-K",
-      "sentiment_score": 0.75,
-      "sentiment_label": "positive",
-      "key_themes": ["revenue growth", "innovation", "market expansion"],
-      "chunk_id": "AAPL_10-K_2024-09-28_001"
+      "key_positive": ["revenue growth", "services expansion"],
+      "key_negative": ["China market softness"],
+      "summary": "Overall positive tone driven by iPhone and Services strength."
     }
   ],
-  "count": 15
+  "latest_score": 0.75,
+  "latency_ms": 118
 }
 ```
 
 ### GET /sentiment/{ticker}/summary
 
-Get aggregated sentiment summary for a ticker.
+Get an aggregated sentiment summary for a ticker (average score, trend, signal count).
 
 **Request:**
 
@@ -219,24 +222,18 @@ curl http://localhost:8000/sentiment/AAPL/summary
 ```json
 {
   "ticker": "AAPL",
-  "avg_sentiment": 0.68,
-  "sentiment_distribution": {
-    "positive": 12,
-    "neutral": 3,
-    "negative": 0
-  },
-  "top_themes": ["revenue growth", "innovation", "AI integration"],
-  "date_range": {
-    "start": "2024-01-01",
-    "end": "2024-12-31"
-  },
-  "num_signals": 15
+  "period_days": 240,
+  "avg_score": 0.68,
+  "trend": "improving",
+  "signal_count": 15,
+  "most_recent_date": "2024-09-28",
+  "latency_ms": 95
 }
 ```
 
 ### POST /ingest/{ticker}
 
-Ingest data for a single ticker.
+Trigger full ingestion (EDGAR filings + news → chunk → embed → store) for a single ticker. Optional JSON body can override `filing_types`/`years_back` for this request only.
 
 **Request:**
 
@@ -249,16 +246,16 @@ curl -X POST http://localhost:8000/ingest/MSFT
 ```json
 {
   "ticker": "MSFT",
+  "status": "completed",
   "chunks_created": 342,
-  "chunks_embedded": 342,
   "chunks_stored": 342,
-  "ingestion_time_seconds": 45.2
+  "latency_ms": 45200
 }
 ```
 
 ### POST /ingest/batch
 
-Ingest data for multiple tickers in batch.
+Ingest multiple tickers sequentially, then rebuild the BM25 index once at the end.
 
 **Request:**
 
@@ -277,32 +274,31 @@ curl -X POST http://localhost:8000/ingest/batch \
   "results": [
     {
       "ticker": "AAPL",
+      "status": "completed",
       "chunks_created": 450,
-      "chunks_embedded": 450,
       "chunks_stored": 450,
-      "ingestion_time_seconds": 52.1
+      "latency_ms": 52100
     },
     {
       "ticker": "MSFT",
+      "status": "completed",
       "chunks_created": 342,
-      "chunks_embedded": 342,
       "chunks_stored": 342,
-      "ingestion_time_seconds": 45.2
+      "latency_ms": 45200
     }
   ],
-  "total_chunks": 792,
-  "total_time_seconds": 97.3
+  "total_latency_ms": 97300
 }
 ```
 
 ### GET /health
 
-Health check endpoint.
+Health check endpoint — reports whether the FAISS index and SQLite metadata store are actually loaded.
 
 **Request:**
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8000/health/
 ```
 
 **Response:**
@@ -310,43 +306,42 @@ curl http://localhost:8000/health
 ```json
 {
   "status": "healthy",
-  "timestamp": "2026-03-15T10:30:00Z",
-  "uptime_seconds": 3600
+  "version": "0.1.0",
+  "faiss_index_loaded": true,
+  "sqlite_connected": true,
+  "chunks_indexed": 4820,
+  "uptime_seconds": 3600.5
 }
 ```
 
 ### GET /metrics
 
-Get performance metrics.
+Get request-latency percentiles and error counts, aggregated since process start.
 
 **Request:**
 
 ```bash
-curl http://localhost:8000/metrics
+curl http://localhost:8000/metrics/
 ```
 
 **Response:**
 
 ```json
 {
-  "query_latency_ms": {
-    "p50": 245,
-    "p95": 512,
-    "p99": 780,
-    "count": 150
+  "query": {
+    "count": 150,
+    "percentiles": {"p50": 245.0, "p95": 512.0, "p99": 780.0}
   },
-  "retrieval_latency_ms": {
-    "p50": 42,
-    "p95": 98,
-    "p99": 145,
-    "count": 150
+  "ingest": {
+    "count": 8,
+    "percentiles": {"p50": 45200.0, "p95": 52100.0, "p99": 52100.0}
   },
-  "generation_latency_ms": {
-    "p50": 198,
-    "p95": 410,
-    "p99": 620,
-    "count": 150
-  }
+  "sentiment": {
+    "count": 60,
+    "percentiles": {"p50": 95.0, "p95": 118.0, "p99": 130.0}
+  },
+  "errors": {"count": 2},
+  "system": {"uptime_seconds": 3600, "chunks_indexed": 4820}
 }
 ```
 
@@ -380,104 +375,36 @@ python alphasignal/scripts/annotate_golden_set.py
 python alphasignal/scripts/benchmark.py
 ```
 
-## AlphaLab Integration
+## System Integration
 
-AlphaSignal is part of a three-repo algorithmic trading system:
+AlphaSignal is part of a multi-repo algorithmic trading system. Actual integration status (verified 2026-07-01, not aspirational):
 
 | Repo | Purpose | AlphaSignal connected? |
 |------|---------|------------------------|
-| **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Backtesting platform — consumes AlphaSignal sentiment as strategy features | ✅ Live |
-| **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** | 24/7 execution engine — runs strategies exported from AlphaLab | ✅ Live (2026-05-25) |
-| **[AlphaSignal](https://github.com/bernardoguterres/AlphaSignal)** (this repo) | Financial RAG intelligence layer | — |
-| **[DeepLOB](https://github.com/bernardoguterres/DeepLOB)** | CNN+LSTM LOB mid-price predictor — runs alongside AlphaSignal in the execution gate | ✅ Concurrent |
+| **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** | 24/7 execution engine — runs strategies exported from AlphaLab | ✅ Live (2026-05-25) — calls `/sentiment/{ticker}` before every order |
+| **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Backtesting platform | ❌ Not connected — no code in AlphaLab calls AlphaSignal's API. AlphaLab's fundamental screener uses yfinance directly instead |
+| **[DeepLOB](https://github.com/bernardoguterres/DeepLOB)** | CNN+LSTM LOB mid-price predictor — runs alongside AlphaSignal in the execution gate | ✅ Concurrent (both called via `asyncio.gather` in AlphaLive) |
 
 AlphaSignal's `/sentiment/{ticker}` endpoint is called by AlphaLive before every order, running **concurrently** with the DeepLOB LOB filter via `asyncio.gather` — both checks complete in parallel rather than sequentially. Strongly negative sentiment suppresses long entries; strongly positive suppresses shorts. Both filters fail open — AlphaLive trades normally if either service is unreachable.
 
-### Calling the API
+**Current limitation:** the FAISS index has no real data ingested yet (see Roadmap), so the sentiment filter is wired correctly end-to-end but returns neutral scores until the corpus is built.
 
-With AlphaSignal running locally (`uvicorn alphasignal.api.app:app --port 8001`), a strategy fetches sentiment like this:
-
-```bash
-curl http://localhost:8001/sentiment/AAPL
-```
+### Calling the API from another service
 
 ```python
 import httpx
 
-response = httpx.get("http://localhost:8001/sentiment/AAPL/summary")
+response = httpx.get("http://localhost:8000/sentiment/AAPL/summary")
 data = response.json()
 
-# Use the aggregated sentiment score as a strategy feature
-avg_sentiment = data["avg_sentiment"]  # float, -1.0 to 1.0
+avg_score = data["avg_score"]  # float, -1.0 to 1.0
 
-# Example: suppress buy signal on strongly negative sentiment
-if avg_sentiment < -0.3:
+# Example: suppress a buy signal on strongly negative sentiment
+if avg_score < -0.3:
     return Signal.HOLD  # skip entry
 ```
 
-### Sentiment Feature Feed
-
-The `/sentiment/{ticker}` endpoint returns structured sentiment signals:
-
-```json
-{
-  "ticker": "AAPL",
-  "signals": [
-    {
-      "ticker": "AAPL",
-      "date": "2024-09-28",
-      "doc_type": "10-K",
-      "sentiment_score": 0.75,
-      "sentiment_label": "positive",
-      "key_themes": ["revenue growth", "innovation", "market expansion"],
-      "chunk_id": "AAPL_10-K_2024-09-28_001"
-    }
-  ],
-  "count": 15
-}
-```
-
-### Data Contract
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `ticker` | string | Stock ticker symbol |
-| `date` | date | Document publication date (ISO 8601) |
-| `doc_type` | string | Source type: "10-K", "10-Q", or "news" |
-| `sentiment_score` | float | Sentiment score in [-1.0, 1.0] range |
-| `sentiment_label` | string | "positive", "neutral", or "negative" |
-| `key_themes` | list[str] | Extracted key themes/topics |
-
-### AlphaLab Strategy Integration
-
-AlphaLab's `SentimentMomentumStrategy` consumes these signals:
-
-1. **Feature Extraction:** Daily calls to `/sentiment/{ticker}` for portfolio tickers
-2. **Signal Aggregation:** Computes rolling sentiment momentum (5-day, 20-day)
-3. **Strategy Logic:** Long positions when sentiment momentum > threshold
-4. **Backtesting:** Historical sentiment data used for strategy validation
-
-**Example Integration:**
-
-```python
-# In AlphaLab strategy code
-import requests
-
-def get_sentiment_score(ticker: str) -> float:
-    """Fetch latest sentiment score from AlphaSignal."""
-    response = requests.get(f"http://alphasignal:8000/sentiment/{ticker}")
-    data = response.json()
-    return data.get("latest_score", 0.0)
-
-# Use in strategy
-for ticker in portfolio:
-    sentiment = get_sentiment_score(ticker)
-    if sentiment > 0.5:
-        # Positive sentiment signal
-        signals.append(("LONG", ticker, confidence=sentiment))
-```
-
-This integration enables quantitative strategies to incorporate qualitative financial information extracted from SEC filings and news.
+See [`GET /sentiment/{ticker}`](#get-sentimentticker) and [`GET /sentiment/{ticker}/summary`](#get-sentimenttickersummary) above for the exact response shape.
 
 ## Project Structure
 
@@ -738,8 +665,8 @@ embeddings:
 
 ### Long-term
 - [ ] Multi-modal support (charts, images from filings)
-- [x] Integration with AlphaLab backtesting platform
-- [ ] Deploy to production (Docker, K8s)
+- [ ] Integration with AlphaLab backtesting platform (not built — AlphaLab's fundamental screener currently calls yfinance directly instead of AlphaSignal's API)
+- [x] Deployment config for production (Dockerfile/Procfile/railway.toml, validated on Railway's `amd64` architecture) — **not yet actually deployed**; still needs a live Railway service and the corpus ingested
 - [ ] Build web UI for queries and sentiment visualization
 
 ## License
