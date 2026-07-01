@@ -67,18 +67,15 @@ async def lifespan(app: FastAPI):
 
     start_time = time.time()
 
-    # Load environment variables
     load_dotenv()
     logger.info("✓ Loaded environment variables")
 
-    # Load configuration
     config_path = Path(__file__).parent.parent.parent / "config.yaml"
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
     logger.info(f"✓ Loaded configuration for {len(config.get('tickers', []))} tickers")
 
-    # Initialize storage paths
     storage_config = config.get("storage", {})
     data_dir = Path("data")
     data_dir.mkdir(exist_ok=True)
@@ -89,24 +86,20 @@ async def lifespan(app: FastAPI):
         "embeddings_cache_path", "data/embeddings_cache"
     )
 
-    # Initialize vector store
     vector_store = VectorStore(faiss_index_path, dim=1536)
     vector_store.load()
     logger.info(f"✓ Vector store loaded: {len(vector_store)} vectors")
 
-    # Initialize metadata store
     metadata_store = MetadataStore(sqlite_db_path)
     chunks_indexed = metadata_store.count()
     logger.info(f"✓ Metadata store connected: {chunks_indexed} chunks indexed")
 
-    # Initialize embedding cache and embedder
     embedding_cache = EmbeddingCache(f"{embeddings_cache_path}/cache.pkl")
     embedder = Embedder(config, embedding_cache)
     logger.info(f"✓ Embedder initialized: {config['embeddings']['model']}")
 
-    # Initialize ingestion pipeline, sharing the vector/metadata stores and
-    # embedder with the retriever so newly ingested data is immediately
-    # visible to /query without a process restart
+    # Pass the shared vector/metadata stores and embedder to the pipeline so
+    # newly ingested data is immediately visible to /query without a restart
     pipeline = IngestionPipeline(
         config,
         embedder=embedder,
@@ -115,32 +108,25 @@ async def lifespan(app: FastAPI):
     )
     logger.info("✓ Ingestion pipeline initialized")
 
-    # Initialize retriever
     retriever = HybridRetriever(config, embedder, vector_store, metadata_store)
 
-    # Build BM25 index
     logger.info("Building BM25 index from existing data...")
     retriever.build_bm25_index()
     bm25_docs = len(retriever.bm25_chunk_ids) if retriever.bm25_index else 0
     logger.info(f"✓ BM25 index built: {bm25_docs} documents")
 
-    # Initialize reranker
     reranker = CrossEncoderReranker()
     logger.info("✓ Cross-encoder reranker loaded")
 
-    # Initialize generator
     generator = RAGGenerator(config)
     logger.info(f"✓ RAG generator initialized: {config['generation']['model']}")
 
-    # Initialize sentiment extractor
     sentiment_extractor = SentimentExtractor(config)
     logger.info(f"✓ Sentiment extractor initialized")
 
-    # Initialize metrics collector
     metrics_collector = MetricsCollector()
     logger.info("✓ Metrics collector initialized")
 
-    # Create app state
     app_state = AppState(
         config=config,
         pipeline=pipeline,
@@ -152,10 +138,8 @@ async def lifespan(app: FastAPI):
         start_time=start_time,
     )
 
-    # Store in app state
     app.state.app_state = app_state
 
-    # Startup summary
     elapsed = time.time() - start_time
     logger.info("=" * 80)
     logger.info("STARTUP SUMMARY")

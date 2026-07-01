@@ -6,19 +6,14 @@ import sys
 import time
 from pathlib import Path
 
-import yaml
-
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from alphasignal.embeddings.cache import EmbeddingCache
-from alphasignal.embeddings.embedder import Embedder
 from alphasignal.retrieval.evaluator import RetrievalEvaluator
 from alphasignal.retrieval.reranker import CrossEncoderReranker
 from alphasignal.retrieval.retriever import HybridRetriever
-from alphasignal.store.metadata_store import MetadataStore
-from alphasignal.store.vector_store import VectorStore
+from alphasignal.scripts._common import build_storage_components, load_config
 
 # Configure logging
 logging.basicConfig(
@@ -85,21 +80,7 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
     )
 
     # Initialize components
-    storage_config = base_config.get("storage", {})
-
-    vector_store = VectorStore(
-        storage_config.get("faiss_index_path", "data/faiss_index"), dim=1536
-    )
-    vector_store.load()
-
-    metadata_store = MetadataStore(
-        storage_config.get("sqlite_db_path", "data/metadata.db")
-    )
-
-    embedding_cache = EmbeddingCache(
-        f"{storage_config.get('embeddings_cache_path', 'data/embeddings_cache')}/cache.pkl"
-    )
-    embedder = Embedder(base_config, embedding_cache)
+    vector_store, metadata_store, embedder = build_storage_components(base_config)
 
     # Modify config based on benchmark spec
     modified_config = base_config.copy()
@@ -157,9 +138,7 @@ def main():
     print()
 
     # Load configuration
-    config_path = project_root / "config.yaml"
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
+    config = load_config(project_root)
 
     # Check for golden set
     golden_set_path = project_root / "evaluation" / "golden_set.json"

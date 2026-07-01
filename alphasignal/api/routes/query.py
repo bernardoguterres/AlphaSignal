@@ -3,7 +3,7 @@
 import logging
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from openai import OpenAIError
 
 from alphasignal.api.dependencies import (

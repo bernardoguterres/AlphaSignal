@@ -7,18 +7,16 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import yaml
-
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from alphasignal.ingestion.pipeline import IngestionPipeline
+from alphasignal.scripts._common import load_config
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -30,9 +28,7 @@ def main():
     print("=" * 80)
 
     # Load configuration
-    config_path = project_root / "config.yaml"
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
+    config = load_config(project_root)
 
     tickers = config.get("tickers", [])
     print(f"\nIngesting {len(tickers)} tickers: {', '.join(tickers)}")
@@ -42,10 +38,7 @@ def main():
     pipeline = IngestionPipeline(config)
 
     # Track statistics
-    corpus_stats = {
-        "timestamp": datetime.now().isoformat(),
-        "tickers": {}
-    }
+    corpus_stats = {"timestamp": datetime.now().isoformat(), "tickers": {}}
 
     results_table = []
     total_filings = 0
@@ -80,7 +73,9 @@ def main():
             else:
                 date_range = "N/A"
 
-            num_filings = len(set(c.chunk_id.split("_")[2] for c in filings)) if filings else 0
+            num_filings = (
+                len(set(c.chunk_id.split("_")[2] for c in filings)) if filings else 0
+            )
             num_articles = len(set(c.url for c in articles if c.url)) if articles else 0
 
             # Log progress
@@ -100,17 +95,19 @@ def main():
                 "num_filings": num_filings,
                 "num_articles": num_articles,
                 "date_range": date_range,
-                "ingestion_time_seconds": round(elapsed, 2)
+                "ingestion_time_seconds": round(elapsed, 2),
             }
 
             # Add to results table
-            results_table.append({
-                "ticker": ticker,
-                "filings": num_filings,
-                "articles": num_articles,
-                "chunks": result.chunks_created,
-                "date_range": date_range
-            })
+            results_table.append(
+                {
+                    "ticker": ticker,
+                    "filings": num_filings,
+                    "articles": num_articles,
+                    "chunks": result.chunks_created,
+                    "date_range": date_range,
+                }
+            )
 
             total_filings += num_filings
             total_articles += num_articles
@@ -118,23 +115,25 @@ def main():
 
         except Exception as e:
             logger.error(f"Error ingesting {ticker}: {e}", exc_info=True)
-            corpus_stats["tickers"][ticker] = {
-                "error": str(e)
-            }
-            results_table.append({
-                "ticker": ticker,
-                "filings": 0,
-                "articles": 0,
-                "chunks": 0,
-                "date_range": "ERROR"
-            })
+            corpus_stats["tickers"][ticker] = {"error": str(e)}
+            results_table.append(
+                {
+                    "ticker": ticker,
+                    "filings": 0,
+                    "articles": 0,
+                    "chunks": 0,
+                    "date_range": "ERROR",
+                }
+            )
 
     # Print summary table
     print("\n\n" + "=" * 80)
     print("CORPUS STATISTICS")
     print("=" * 80)
     print()
-    print(f"{'Ticker':<8} | {'Filings':>8} | {'Articles':>8} | {'Chunks':>8} | Date Range")
+    print(
+        f"{'Ticker':<8} | {'Filings':>8} | {'Articles':>8} | {'Chunks':>8} | Date Range"
+    )
     print("-" * 80)
 
     for row in results_table:

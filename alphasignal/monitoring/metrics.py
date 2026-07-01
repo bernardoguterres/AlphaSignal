@@ -46,52 +46,24 @@ class MetricsCollector:
         """Record an error occurrence."""
         self._error_count += 1
 
-    def get_query_percentiles(self) -> Dict[str, float]:
-        """Get query latency percentiles.
+    @staticmethod
+    def _percentiles(latencies: List[float]) -> Dict[str, float]:
+        """Compute p50/p95/p99 for a list of latencies.
+
+        Args:
+            latencies: Latencies in milliseconds
 
         Returns:
             Dictionary with p50, p95, p99 percentiles
         """
-        if not self._query_latencies:
+        if not latencies:
             return {"p50": 0.0, "p95": 0.0, "p99": 0.0}
 
-        latencies = np.array(self._query_latencies)
+        arr = np.array(latencies)
         return {
-            "p50": float(np.percentile(latencies, 50)),
-            "p95": float(np.percentile(latencies, 95)),
-            "p99": float(np.percentile(latencies, 99))
-        }
-
-    def get_ingest_percentiles(self) -> Dict[str, float]:
-        """Get ingestion latency percentiles.
-
-        Returns:
-            Dictionary with p50, p95, p99 percentiles
-        """
-        if not self._ingest_latencies:
-            return {"p50": 0.0, "p95": 0.0, "p99": 0.0}
-
-        latencies = np.array(self._ingest_latencies)
-        return {
-            "p50": float(np.percentile(latencies, 50)),
-            "p95": float(np.percentile(latencies, 95)),
-            "p99": float(np.percentile(latencies, 99))
-        }
-
-    def get_sentiment_percentiles(self) -> Dict[str, float]:
-        """Get sentiment latency percentiles.
-
-        Returns:
-            Dictionary with p50, p95, p99 percentiles
-        """
-        if not self._sentiment_latencies:
-            return {"p50": 0.0, "p95": 0.0, "p99": 0.0}
-
-        latencies = np.array(self._sentiment_latencies)
-        return {
-            "p50": float(np.percentile(latencies, 50)),
-            "p95": float(np.percentile(latencies, 95)),
-            "p99": float(np.percentile(latencies, 99))
+            "p50": float(np.percentile(arr, 50)),
+            "p95": float(np.percentile(arr, 95)),
+            "p99": float(np.percentile(arr, 99)),
         }
 
     def get_summary(self) -> Dict:
@@ -103,17 +75,15 @@ class MetricsCollector:
         return {
             "query": {
                 "count": len(self._query_latencies),
-                "percentiles": self.get_query_percentiles()
+                "percentiles": self._percentiles(self._query_latencies),
             },
             "ingest": {
                 "count": len(self._ingest_latencies),
-                "percentiles": self.get_ingest_percentiles()
+                "percentiles": self._percentiles(self._ingest_latencies),
             },
             "sentiment": {
                 "count": len(self._sentiment_latencies),
-                "percentiles": self.get_sentiment_percentiles()
+                "percentiles": self._percentiles(self._sentiment_latencies),
             },
-            "errors": {
-                "count": self._error_count
-            }
+            "errors": {"count": self._error_count},
         }

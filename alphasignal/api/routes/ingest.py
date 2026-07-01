@@ -3,7 +3,7 @@
 import logging
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends
 
 from alphasignal.api.dependencies import (
     get_metrics_collector,
@@ -105,7 +105,6 @@ async def ingest_batch(
 @router.post("/{ticker}", response_model=IngestResponse)
 async def ingest(
     ticker: str,
-    request: Request,
     body: IngestRequest | None = None,
     pipeline: IngestionPipeline = Depends(get_pipeline),
     retriever: HybridRetriever = Depends(get_retriever),
@@ -115,7 +114,6 @@ async def ingest(
 
     Args:
         ticker: Stock ticker symbol
-        request: FastAPI request object
         body: Optional IngestRequest with filing parameters
         pipeline: Ingestion pipeline instance
         retriever: Hybrid retriever instance

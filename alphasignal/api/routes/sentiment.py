@@ -5,7 +5,7 @@ import time
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from alphasignal.api.dependencies import (
     get_config,

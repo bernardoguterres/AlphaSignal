@@ -2,7 +2,7 @@
 
 import time
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 
 from alphasignal.api.dependencies import get_app_state, get_metadata_store
 from alphasignal.api.state import AppState
@@ -14,7 +14,7 @@ router = APIRouter()
 @router.get("/")
 async def get_metrics(
     state: AppState = Depends(get_app_state),
-    metadata_store: MetadataStore = Depends(get_metadata_store)
+    metadata_store: MetadataStore = Depends(get_metadata_store),
 ):
     """Get performance metrics and statistics.
 
@@ -37,6 +37,6 @@ async def get_metrics(
         **metrics,
         "system": {
             "uptime_seconds": int(uptime_seconds),
-            "chunks_indexed": chunks_indexed
-        }
+            "chunks_indexed": chunks_indexed,
+        },
     }
