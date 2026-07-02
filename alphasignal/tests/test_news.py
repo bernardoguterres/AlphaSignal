@@ -341,6 +341,55 @@ def test_is_relevant_matches_company_name(news_ingester):
     assert news_ingester.is_relevant(unrelated_article, "AAPL") is False
 
 
+def test_fetch_articles_stops_at_max_articles_per_ticker(news_ingester):
+    """Test that fetch_articles stops once max_articles_per_ticker is reached."""
+    ticker = "AAPL"
+    news_ingester.max_articles_per_ticker = 3
+
+    with patch("alphasignal.ingestion.news.feedparser.parse") as mock_parse:
+        # Feed has 10 available articles, but the limit should cap results at 3
+        mock_parse.return_value = mock_rss_feed(ticker, 10)
+
+        results = news_ingester.fetch_articles(ticker)
+
+    assert len(results) == 3
+
+
+def test_parse_article_uses_content_field_when_no_summary(news_ingester):
+    """Test that parse_article falls back to entry.content when summary is absent."""
+    entry = MagicMock()
+    entry.get = MagicMock(side_effect=lambda key, default=None: {
+        "title": "Content Field Article",
+        "link": "https://example.com/content-field",
+    }.get(key, default))
+    entry.title = "Content Field Article"
+    entry.link = "https://example.com/content-field"
+    entry.published_parsed = time.struct_time((2024, 1, 1, 12, 0, 0, 0, 0, 0))
+    entry.updated_parsed = None
+    entry.summary = None
+    entry.content = [{"value": "This is the article body coming from the content field, long enough to pass the minimum length check."}]
+    entry.description = None
+
+    result = news_ingester.parse_article(entry)
+
+    assert result is not None
+    assert "article body coming from the content field" in result.content
+
+
+def test_fetch_articles_handles_source_error_and_continues(news_ingester):
+    """Test that an error formatting/fetching one source doesn't abort the whole run."""
+    ticker = "AAPL"
+    # url_template.format will raise KeyError because {bad_key} isn't a valid substitution
+    news_ingester.sources = [
+        {"name": "Broken Source", "url_template": "https://example.com/{bad_key}"},
+    ]
+
+    # Should not raise, should just log a warning and return no articles
+    results = news_ingester.fetch_articles(ticker)
+
+    assert results == []
+
+
 def test_fetch_articles_handles_network_error(news_ingester):
     """Test that fetch_articles handles network errors gracefully."""
     ticker = "AAPL"

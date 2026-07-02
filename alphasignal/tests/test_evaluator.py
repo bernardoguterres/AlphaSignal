@@ -59,6 +59,16 @@ def test_evaluator_mrr_second_place():
     assert mrr == 0.5
 
 
+def test_evaluator_mrr_no_relevant_results():
+    """Test MRR computation when no retrieved doc is relevant (returns 0.0)."""
+    ranked_ids = ["a", "b", "c"]
+    relevant_ids = {"z"}
+
+    mrr = RetrievalEvaluator.compute_mrr(ranked_ids, relevant_ids)
+
+    assert mrr == 0.0
+
+
 def test_evaluator_ndcg_at_5_with_two_relevant():
     """Test NDCG@5 with two relevant documents at different positions."""
     # Case 1: Relevant docs at positions 1 and 3
@@ -98,6 +108,60 @@ def test_evaluator_hit_at_3_false():
     hit = RetrievalEvaluator.compute_hit_at_k(ranked_ids[:3], relevant_ids)
 
     assert hit == 0.0
+
+
+def test_evaluator_load_golden_set_missing_file_returns_empty(tmp_path):
+    """Test that loading a nonexistent golden set logs a warning and returns []."""
+    evaluator = RetrievalEvaluator(str(tmp_path / "does_not_exist.json"))
+
+    assert evaluator.golden_set == []
+
+
+def test_evaluator_evaluate_with_empty_golden_set_returns_zeroed_results():
+    """Test that evaluate() short-circuits to zeroed EvalResults when golden_set is empty."""
+    import json
+
+    evaluator = RetrievalEvaluator.__new__(RetrievalEvaluator)
+    evaluator.golden_set_path = None
+    evaluator.golden_set = []
+
+    results = evaluator.evaluate(retriever=None, top_k=5)
+
+    assert results.num_queries == 0
+    assert results.mrr == 0.0
+    assert results.ndcg_at_5 == 0.0
+    assert results.hit_at_1 == 0.0
+
+
+def test_evaluator_evaluate_applies_reranker_when_provided():
+    """Test that evaluate() reranks retrieved chunks before scoring when a reranker is given."""
+    from unittest.mock import MagicMock
+
+    evaluator = RetrievalEvaluator.__new__(RetrievalEvaluator)
+    evaluator.golden_set_path = None
+    evaluator.golden_set = [
+        {"query": "test query", "relevant_chunk_ids": ["c1"], "ticker": "AAPL"}
+    ]
+
+    fake_chunk = MagicMock(chunk_id="c1")
+    mock_retriever = MagicMock()
+    mock_retriever.retrieve.return_value = [MagicMock(chunk_id="c2")]
+
+    mock_reranker = MagicMock()
+    mock_reranker.rerank.return_value = [fake_chunk]
+
+    results = evaluator.evaluate(mock_retriever, top_k=5, reranker=mock_reranker)
+
+    # Reranker should have been called with the retriever's raw output
+    assert mock_reranker.rerank.called
+    # Because reranker moved c1 to the top, MRR should be perfect
+    assert results.mrr == 1.0
+
+
+def test_compute_ndcg_empty_inputs_return_zero():
+    """Test that compute_ndcg handles empty retrieved/relevant lists without dividing by zero."""
+    assert RetrievalEvaluator.compute_ndcg([], {"a"}) == 0.0
+    assert RetrievalEvaluator.compute_ndcg(["a", "b"], set()) == 0.0
 
 
 def test_golden_set_has_variety_of_question_types(golden_set_path):

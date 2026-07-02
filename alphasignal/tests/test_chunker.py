@@ -247,6 +247,80 @@ def test_chunk_article_single_chunk_for_short_article(chunker):
     assert chunk.total_chunks == 1
 
 
+def test_split_into_sentences_empty_text_returns_empty_list(chunker):
+    """Test that split_into_sentences handles empty input gracefully."""
+    assert chunker.split_into_sentences("") == []
+
+
+def test_chunk_text_empty_text_returns_empty_list(chunker):
+    """Test that chunk_text returns [] for empty input rather than raising."""
+    assert chunker.chunk_text("") == []
+
+
+def test_chunk_text_hard_splits_oversized_single_sentence(chunker):
+    """Test that a single sentence exceeding max_tokens gets hard-split by token count."""
+    chunker.max_tokens = 50
+    chunker.min_tokens = 10
+    chunker.overlap_tokens = 5
+
+    # One giant "sentence" (no sentence-ending punctuation) that is way over max_tokens
+    huge_sentence = ("financial market analysis word " * 100).strip() + "."
+
+    chunks = chunker.chunk_text(huge_sentence)
+
+    # Should have been forcibly split into multiple pieces
+    assert len(chunks) > 1
+    for c in chunks:
+        assert chunker.count_tokens(c) <= chunker.max_tokens
+
+
+def test_chunk_document_skips_empty_sections(chunker):
+    """Test that chunk_document skips sections with empty or whitespace-only text."""
+    doc = RawDocument(
+        ticker="AAPL",
+        doc_type="10-K",
+        filing_date=date(2024, 1, 15),
+        period_of_report=date(2024, 1, 15),
+        source="SEC EDGAR",
+        sections={
+            "item_1": "Apple Inc. designs and manufactures consumer electronics. " * 20,
+            "item_2": "",
+            "item_3": "   ",
+        },
+        file_path="/path/to/filing",
+        accession_number="0001234567-24-000003",
+    )
+
+    chunks = chunker.chunk_document(doc)
+
+    # Only item_1 should have produced chunks
+    sections_present = {c.section for c in chunks}
+    assert sections_present == {"item_1"}
+
+
+def test_chunk_article_long_article_produces_multiple_chunks(chunker):
+    """Test that a long article is split into multiple sequentially-indexed chunks."""
+    long_content = "Apple reported strong quarterly results across all segments. " * 60
+    article = RawArticle(
+        ticker="AAPL",
+        title="Apple Reports Record Quarter",
+        content=long_content,
+        published_date=date(2024, 3, 15),
+        url="https://example.com/apple-earnings",
+        source="Reuters",
+    )
+
+    chunks = chunker.chunk_article(article)
+
+    assert len(chunks) > 1
+    assert all(c.doc_type == "news" for c in chunks)
+    assert all(c.total_chunks == len(chunks) for c in chunks)
+    # chunk_index should be sequential starting at 0
+    assert [c.chunk_index for c in chunks] == list(range(len(chunks)))
+    # chunk_ids should be unique
+    assert len({c.chunk_id for c in chunks}) == len(chunks)
+
+
 def test_count_tokens_consistent_with_tiktoken(chunker):
     """Test that count_tokens returns expected values."""
     # Test known token counts

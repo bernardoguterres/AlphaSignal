@@ -247,69 +247,6 @@ def test_reranker_sorts_by_final_score():
         assert reranked[0].chunk_id == "chunk_0"
 
 
-def test_evaluator_mrr_calculation():
-    """Test MRR (Mean Reciprocal Rank) calculation."""
-    # Test case 1: First result is relevant
-    retrieved_ids = ["chunk_1", "chunk_2", "chunk_3"]
-    relevant_ids = {"chunk_1"}
-    mrr = RetrievalEvaluator.compute_mrr(retrieved_ids, relevant_ids)
-    assert mrr == 1.0  # 1/1
-
-    # Test case 2: Second result is relevant
-    relevant_ids = {"chunk_2"}
-    mrr = RetrievalEvaluator.compute_mrr(retrieved_ids, relevant_ids)
-    assert mrr == 0.5  # 1/2
-
-    # Test case 3: Third result is relevant
-    relevant_ids = {"chunk_3"}
-    mrr = RetrievalEvaluator.compute_mrr(retrieved_ids, relevant_ids)
-    assert abs(mrr - 0.333) < 0.01  # 1/3
-
-    # Test case 4: No relevant results
-    relevant_ids = {"chunk_999"}
-    mrr = RetrievalEvaluator.compute_mrr(retrieved_ids, relevant_ids)
-    assert mrr == 0.0
-
-
-def test_evaluator_ndcg_calculation():
-    """Test NDCG (Normalized Discounted Cumulative Gain) calculation."""
-    # Test case 1: Perfect ranking (all relevant items first)
-    retrieved_ids = ["rel_1", "rel_2", "irrel_1", "irrel_2"]
-    relevant_ids = {"rel_1", "rel_2"}
-    ndcg = RetrievalEvaluator.compute_ndcg(retrieved_ids, relevant_ids)
-    assert ndcg == 1.0  # Perfect score
-
-    # Test case 2: Worst ranking (relevant items last)
-    retrieved_ids = ["irrel_1", "irrel_2", "rel_1", "rel_2"]
-    ndcg = RetrievalEvaluator.compute_ndcg(retrieved_ids, relevant_ids)
-    assert 0.0 < ndcg < 1.0  # Not perfect but > 0
-
-    # Test case 3: No relevant items
-    retrieved_ids = ["irrel_1", "irrel_2"]
-    relevant_ids = {"rel_1", "rel_2"}
-    ndcg = RetrievalEvaluator.compute_ndcg(retrieved_ids, relevant_ids)
-    assert ndcg == 0.0
-
-
-def test_evaluator_hit_at_k():
-    """Test Hit@k metric calculation."""
-    # Test case 1: Hit at k=1
-    retrieved_ids = ["rel_1"]
-    relevant_ids = {"rel_1", "rel_2"}
-    hit = RetrievalEvaluator.compute_hit_at_k(retrieved_ids, relevant_ids)
-    assert hit == 1.0
-
-    # Test case 2: Miss at k=1
-    retrieved_ids = ["irrel_1"]
-    hit = RetrievalEvaluator.compute_hit_at_k(retrieved_ids, relevant_ids)
-    assert hit == 0.0
-
-    # Test case 3: Hit at k=3 (relevant in position 2)
-    retrieved_ids = ["irrel_1", "rel_1", "irrel_2"]
-    hit = RetrievalEvaluator.compute_hit_at_k(retrieved_ids, relevant_ids)
-    assert hit == 1.0
-
-
 def test_evaluator_with_golden_set(tmp_path, hybrid_retriever):
     """Test evaluator with a small golden set."""
     # Create golden set file

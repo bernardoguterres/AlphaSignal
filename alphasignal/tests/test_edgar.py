@@ -1,7 +1,7 @@
 """Tests for SEC EDGAR ingestion."""
 
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -218,6 +218,204 @@ def test_fetch_filings_handles_network_error(edgar_ingester):
         )
 
         assert results == []
+
+
+def test_extract_filing_dates_parses_real_sec_header(edgar_ingester, tmp_path):
+    """Regression test for the fixed bug where filing_date was always datetime.now().
+
+    extract_filing_dates must parse the actual FILED AS OF DATE / CONFORMED
+    PERIOD OF REPORT from the SEC SGML header, not fall back to today.
+    """
+    filing_dir = tmp_path / "filing"
+    filing_dir.mkdir()
+    submission = filing_dir / "full-submission.txt"
+    submission.write_text(
+        "<SEC-HEADER>\n"
+        "ACCESSION NUMBER:\t\t0001234567-23-000001\n"
+        "CONFORMED PERIOD OF REPORT:\t20221231\n"
+        "FILED AS OF DATE:\t\t20230203\n"
+        "</SEC-HEADER>\n"
+    )
+
+    filing_date, period_of_report = edgar_ingester.extract_filing_dates(filing_dir)
+
+    # Must be the real SEC dates, not datetime.now().date()
+    assert filing_date == date(2023, 2, 3)
+    assert period_of_report == date(2022, 12, 31)
+    assert filing_date != date.today()
+
+
+def test_extract_filing_dates_missing_submission_file_falls_back_to_today(
+    edgar_ingester, tmp_path
+):
+    """Test that extract_filing_dates falls back to today when the file is absent."""
+    filing_dir = tmp_path / "no_submission"
+    filing_dir.mkdir()
+
+    filing_date, period_of_report = edgar_ingester.extract_filing_dates(filing_dir)
+
+    today = datetime.now().date()
+    assert filing_date == today
+    assert period_of_report == today
+
+
+def test_extract_filing_dates_missing_filed_date_falls_back_to_today(
+    edgar_ingester, tmp_path
+):
+    """Test that a header without FILED AS OF DATE falls back to today's date."""
+    filing_dir = tmp_path / "partial_header"
+    filing_dir.mkdir()
+    submission = filing_dir / "full-submission.txt"
+    submission.write_text("<SEC-HEADER>\nSOME OTHER FIELD:\t123\n</SEC-HEADER>\n")
+
+    filing_date, period_of_report = edgar_ingester.extract_filing_dates(filing_dir)
+
+    today = datetime.now().date()
+    assert filing_date == today
+    # period_of_report falls back to filing_date when no period match either
+    assert period_of_report == today
+
+
+def test_fetch_filings_skips_ticker_with_no_downloaded_dir(edgar_ingester):
+    """Test that fetch_filings returns empty results when no filings were downloaded."""
+    with patch.object(edgar_ingester, "downloader") as mock_downloader:
+        mock_downloader.get = MagicMock()
+
+        results = edgar_ingester.fetch_filings(
+            ticker="ZZZZ", filing_types=["10-K"], years_back=1
+        )
+
+    assert results == []
+
+
+def test_fetch_filings_skips_non_directory_entries(edgar_ingester, tmp_path):
+    """Test that stray files inside the ticker/filing_type dir are skipped."""
+    ticker_dir = (
+        edgar_ingester.download_dir / "sec-edgar-filings" / "AAPL" / "10-K"
+    )
+    ticker_dir.mkdir(parents=True)
+    # A stray file (not a directory) should be skipped, not crash the loop
+    (ticker_dir / "stray.txt").write_text("not a filing directory")
+
+    with patch.object(edgar_ingester, "downloader") as mock_downloader:
+        mock_downloader.get = MagicMock()
+
+        results = edgar_ingester.fetch_filings(
+            ticker="AAPL", filing_types=["10-K"], years_back=1
+        )
+
+    assert results == []
+
+
+def test_fetch_filings_skips_directory_with_no_filing_document(
+    edgar_ingester
+):
+    """Test that a filing directory without any recognizable document is skipped."""
+    filing_dir = (
+        edgar_ingester.download_dir
+        / "sec-edgar-filings"
+        / "AAPL"
+        / "10-K"
+        / "0001234567-23-000001"
+    )
+    filing_dir.mkdir(parents=True)
+    # No primary-document.*, *.txt, or *.htm* files present
+    (filing_dir / "metadata.json").write_text("{}")
+
+    with patch.object(edgar_ingester, "downloader") as mock_downloader:
+        mock_downloader.get = MagicMock()
+
+        results = edgar_ingester.fetch_filings(
+            ticker="AAPL", filing_types=["10-K"], years_back=1
+        )
+
+    assert results == []
+
+
+def test_parse_filing_plain_text_strips_sec_header_boilerplate(edgar_ingester):
+    """Test that parse_filing strips SEC header boilerplate from .txt filings."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        content = (
+            "<SEC-HEADER>\nJunk header info that should be discarded\n</SEC-HEADER>\n"
+            "SECURITIES AND EXCHANGE COMMISSION\n"
+            "FORM TYPE:\t10-K\n\n"
+            + (
+                "Item 1. Business. This section describes the company's core business "
+                "operations, products, and services offered to customers worldwide. "
+            )
+            * 10
+        )
+        f.write(content)
+        temp_path = Path(f.name)
+
+    try:
+        result = edgar_ingester.parse_filing(temp_path)
+
+        assert result != ""
+        assert "Junk header info" not in result
+        assert "core business" in result
+    finally:
+        temp_path.unlink()
+
+
+def test_parse_filing_handles_missing_file(edgar_ingester, tmp_path):
+    """Test that parse_filing returns empty string when the file can't be read."""
+    missing_path = tmp_path / "does_not_exist.html"
+
+    result = edgar_ingester.parse_filing(missing_path)
+
+    assert result == ""
+
+
+def test_extract_sections_10q_standard_format(edgar_ingester):
+    """Test that extract_sections correctly identifies 10-Q sections."""
+    text = """
+    SECURITIES AND EXCHANGE COMMISSION
+    FORM 10-Q
+
+    Item 1. Financial Statements
+
+    The unaudited condensed consolidated financial statements are presented below
+    along with explanatory notes covering revenue recognition and expenses.
+
+    Item 2. Management's Discussion and Analysis
+
+    Revenue for the quarter increased due to strong demand across all segments.
+
+    Item 3. Quantitative and Qualitative Disclosures About Market Risk
+
+    The company is exposed to interest rate and foreign currency risks.
+
+    Item 4. Controls and Procedures
+
+    Management concluded that disclosure controls were effective as of the period end.
+    """
+
+    sections = edgar_ingester.extract_sections(text, "10-Q")
+
+    assert len(sections) > 0
+    assert any("item_1" in key or "item_2" in key for key in sections.keys())
+
+
+def test_extract_sections_unknown_doc_type_returns_full_text(edgar_ingester):
+    """Test that an unrecognized doc_type falls back to full_text."""
+    text = "Some filing content that doesn't match 10-K or 10-Q patterns."
+
+    sections = edgar_ingester.extract_sections(text, "8-K")
+
+    assert sections == {"full_text": text}
+
+
+def test_extract_sections_handles_internal_exception(edgar_ingester):
+    """Test that extract_sections falls back to full_text if pattern matching raises."""
+    text = "Item 1. Business. " + ("Some content. " * 50)
+
+    with patch(
+        "alphasignal.ingestion.edgar.re.search", side_effect=RuntimeError("boom")
+    ):
+        sections = edgar_ingester.extract_sections(text, "10-K")
+
+    assert sections == {"full_text": text}
 
 
 # Integration tests for /ingest endpoint are in test_api.py

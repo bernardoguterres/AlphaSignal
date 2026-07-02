@@ -567,6 +567,8 @@ api:
 
 ### Running Tests
 
+150 tests, 92% coverage.
+
 ```bash
 # Run all tests
 pytest

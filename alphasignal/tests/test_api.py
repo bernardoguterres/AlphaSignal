@@ -357,6 +357,300 @@ def test_ingest_batch_processes_all_tickers(client):
             assert data["total_latency_ms"] >= 0
 
 
+def test_sentiment_endpoint_no_chunks_returns_empty_signals(client):
+    """Test that sentiment endpoint returns empty signals when no chunks exist."""
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=[],
+    ):
+        response = client.get("/sentiment/AAPL")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ticker"] == "AAPL"
+    assert data["signals"] == []
+    assert data["latest_score"] is None
+
+
+def test_sentiment_endpoint_date_range_query(client):
+    """Test that sentiment endpoint uses the date-range query path when dates given."""
+    from alphasignal.ingestion import Chunk
+
+    mock_chunks = [
+        Chunk(
+            chunk_id="aapl_range_0",
+            ticker="AAPL",
+            text="Range chunk",
+            token_count=10,
+            doc_type="10-K",
+            source="SEC EDGAR",
+            section="item_1",
+            date=date(2024, 5, 1),
+            url=None,
+            chunk_index=0,
+            total_chunks=1,
+        )
+    ]
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_date_range",
+        return_value=mock_chunks,
+    ) as mock_range, patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=[],
+    ):
+        response = client.get(
+            "/sentiment/AAPL?date_from=2024-01-01&date_to=2024-12-31"
+        )
+
+    assert response.status_code == 200
+    assert mock_range.called
+    call_kwargs = mock_range.call_args.kwargs
+    assert call_kwargs["start"] == date(2024, 1, 1)
+    assert call_kwargs["end"] == date(2024, 12, 31)
+
+
+def test_sentiment_endpoint_propagates_errors(client):
+    """Test that sentiment endpoint records the error and re-raises the failure.
+
+    The route's except-block calls metrics_collector.record_error() and then
+    re-raises. This test app doesn't register alphasignal's exception
+    handlers, so the underlying exception surfaces directly to the client.
+    """
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        side_effect=RuntimeError("db exploded"),
+    ):
+        with pytest.raises(RuntimeError, match="db exploded"):
+            client.get("/sentiment/AAPL")
+
+    assert client.app.state.app_state.metrics_collector.get_summary()["errors"]["count"] == 1
+
+
+def test_sentiment_summary_no_chunks(client):
+    """Test that sentiment summary returns defaults when there are no chunks."""
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=[],
+    ):
+        response = client.get("/sentiment/AAPL/summary")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["signal_count"] == 0
+    assert data["avg_score"] is None
+    assert data["trend"] == "unknown"
+
+
+def test_sentiment_summary_no_signals_extracted(client):
+    """Test that sentiment summary handles chunks present but no signals extracted."""
+    from alphasignal.ingestion import Chunk
+
+    mock_chunks = [
+        Chunk(
+            chunk_id="aapl_s_0",
+            ticker="AAPL",
+            text="chunk",
+            token_count=10,
+            doc_type="10-K",
+            source="SEC EDGAR",
+            section="item_1",
+            date=date(2024, 1, 1),
+            url=None,
+            chunk_index=0,
+            total_chunks=1,
+        )
+    ]
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=mock_chunks,
+    ), patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=[],
+    ):
+        response = client.get("/sentiment/AAPL/summary")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["signal_count"] == 0
+    assert data["trend"] == "unknown"
+
+
+def test_sentiment_summary_computes_trend_and_stats(client):
+    """Test that sentiment summary computes avg_score, trend, and period_days."""
+    from alphasignal.ingestion import Chunk
+    from alphasignal.api.schemas import SentimentSignal
+
+    mock_chunks = [
+        Chunk(
+            chunk_id=f"aapl_sum_{i}",
+            ticker="AAPL",
+            text=f"chunk {i}",
+            token_count=10,
+            doc_type="10-K",
+            source="SEC EDGAR",
+            section="item_1",
+            date=date(2024, 1, 1 + i),
+            url=None,
+            chunk_index=i,
+            total_chunks=5,
+        )
+        for i in range(5)
+    ]
+
+    # 3 most recent signals score high (0.8), older 2 score low (0.0) -> improving trend
+    signals = [
+        SentimentSignal(
+            ticker="AAPL",
+            date=date(2024, 1, 10 - i),
+            score=0.8 if i < 3 else 0.0,
+            confidence=0.9,
+            source="SEC EDGAR",
+            doc_type="10-K",
+            key_positive=[],
+            key_negative=[],
+            summary="s",
+        )
+        for i in range(5)
+    ]
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=mock_chunks,
+    ), patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=signals,
+    ):
+        response = client.get("/sentiment/AAPL/summary")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["signal_count"] == 5
+    assert data["trend"] == "improving"
+    assert data["period_days"] == 4
+    assert data["most_recent_date"] == "2024-01-10"
+
+
+def test_sentiment_summary_unknown_ticker_404(client):
+    """Test that sentiment summary rejects tickers not in the config."""
+    response = client.get("/sentiment/ZZZZ/summary")
+    assert response.status_code == 404
+
+
+def test_query_endpoint_handles_openai_error(client):
+    """Test that an OpenAIError from generation surfaces as a 503."""
+    from openai import OpenAIError
+
+    with patch.object(
+        client.app.state.app_state.retriever, "retrieve"
+    ) as mock_retrieve, patch.object(
+        client.app.state.app_state.reranker, "rerank"
+    ) as mock_rerank, patch.object(
+        client.app.state.app_state.generator, "generate"
+    ) as mock_generate:
+        mock_retrieve.return_value = [
+            RetrievedChunk(
+                chunk_id="c1",
+                ticker="AAPL",
+                text="text",
+                doc_type="10-K",
+                source="SEC EDGAR",
+                section="item_1",
+                date=date(2024, 1, 1),
+                url=None,
+                dense_score=0.5,
+                sparse_score=0.5,
+                hybrid_score=0.5,
+                final_score=None,
+            )
+        ]
+        mock_rerank.return_value = mock_retrieve.return_value
+        mock_generate.side_effect = OpenAIError("rate limited")
+
+        response = client.post(
+            "/query/", json={"query": "What is the revenue?", "top_k": 5}
+        )
+
+    assert response.status_code == 503
+
+
+def test_ingest_endpoint_handles_pipeline_failure(client):
+    """Test that a pipeline exception is caught and reported as a failed status."""
+    with patch.object(
+        client.app.state.app_state.pipeline,
+        "full_ingest",
+        side_effect=RuntimeError("EDGAR is down"),
+    ):
+        response = client.post("/ingest/AAPL")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "failed"
+    assert data["chunks_created"] == 0
+
+
+def test_ingest_batch_reports_failed_ticker(client):
+    """Test that batch ingest marks individual failing tickers as failed."""
+    from alphasignal.ingestion.pipeline import IngestResult
+
+    def fake_ingest(ticker, filing_types=None, years_back=None):
+        if ticker == "BADTICK":
+            raise RuntimeError("boom")
+        return IngestResult(ticker=ticker, chunks_created=3, chunks_embedded=3, chunks_stored=3)
+
+    with patch.object(
+        client.app.state.app_state.pipeline, "full_ingest", side_effect=fake_ingest
+    ), patch.object(client.app.state.app_state.retriever, "build_bm25_index"):
+        response = client.post(
+            "/ingest/batch", json={"tickers": ["AAPL", "BADTICK"]}
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    statuses = {r["ticker"]: r["status"] for r in data["results"]}
+    assert statuses["AAPL"] == "completed"
+    assert statuses["BADTICK"] == "failed"
+
+
+def test_metrics_endpoint_reports_recorded_latencies(client):
+    """Regression test for the fixed metrics endpoint that never recorded real data.
+
+    After making real query/sentiment/ingest requests, /metrics/ should
+    reflect non-zero counts for those categories.
+    """
+    with patch.object(
+        client.app.state.app_state.retriever, "retrieve"
+    ) as mock_retrieve, patch.object(
+        client.app.state.app_state.reranker, "rerank"
+    ) as mock_rerank, patch.object(
+        client.app.state.app_state.generator, "generate"
+    ) as mock_generate:
+        mock_retrieve.return_value = []
+        mock_rerank.return_value = []
+        mock_generate.return_value = GenerationResult(
+            answer="", cited_chunks=[], prompt_tokens=0, completion_tokens=0, model="gpt-4o-mini"
+        )
+        client.post("/query/", json={"query": "What is the revenue?", "top_k": 5})
+
+    response = client.get("/metrics/")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["query"]["count"] == 1
+    assert "system" in data
+    assert data["system"]["chunks_indexed"] == 0
+
+
 def test_all_responses_include_latency_ms(client, mock_retrieved_chunks):
     """Test that all endpoints return latency_ms."""
     # Test query endpoint
