@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class RAGGenerator:
     """Generates answers using retrieved context and LLM."""
 
-    SYSTEM_MESSAGE = """You are a financial research assistant with access to SEC filings and financial news. Answer questions accurately using only the provided context. Always cite your sources using [Source N] notation. If the context does not contain enough information to answer, say so explicitly — do not speculate."""
+    SYSTEM_MESSAGE = """You are a financial research assistant with access to SEC filings and financial news. Answer questions accurately using only the provided context. Always cite your sources using [Source N] notation. If the context does not contain enough information to answer, say so explicitly - do not speculate."""
 
     def __init__(self, config: dict):
         """Initialize RAG generator.

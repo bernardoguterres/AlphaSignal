@@ -1,7 +1,7 @@
 """Evaluation runner for AlphaSignal quality framework.
 
 Tests whether positive AlphaSignal sentiment predicts positive 5-day forward returns.
-Works standalone without a running AlphaSignal API — if the API is unavailable,
+Works standalone without a running AlphaSignal API - if the API is unavailable,
 sentiment predictions are marked 'unavailable' and only return data is shown.
 """
 
@@ -145,7 +145,7 @@ def _fetch_predicted_sentiment(
             raw = resp.read().decode("utf-8")
             data = json.loads(raw)
     except Exception:
-        # API not running or error — graceful fallback
+        # API not running or error - graceful fallback
         return "unavailable"
 
     latest_score = data.get("latest_score")

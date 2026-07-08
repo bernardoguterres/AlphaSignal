@@ -58,3 +58,6 @@ CLAUDE.md
 # Coverage reports
 coverage.json
 htmlcov/
+
+# Internal planning/audit notes (not for public repo)
+/docs/alphasignal_prompts.md

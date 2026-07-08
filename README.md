@@ -1,6 +1,6 @@
 # AlphaSignal
 
-AlphaSignal is a production-grade financial RAG (Retrieval-Augmented Generation) system that ingests SEC EDGAR filings and financial news, chunks documents semantically, stores embeddings in FAISS, retrieves relevant context using hybrid search (BM25 + dense retrieval), reranks with a cross-encoder, and generates answers with citations. It also extracts sentiment signals from financial documents and exposes them via a FastAPI REST API — currently consumed by [AlphaLive](https://github.com/bernardoguterres/AlphaLive)'s pre-execution sentiment gate (see [System Integration](#system-integration) below).
+AlphaSignal is a production-grade financial RAG (Retrieval-Augmented Generation) system that ingests SEC EDGAR filings and financial news, chunks documents semantically, stores embeddings in FAISS, retrieves relevant context using hybrid search (BM25 + dense retrieval), reranks with a cross-encoder, and generates answers with citations. It also extracts sentiment signals from financial documents and exposes them via a FastAPI REST API - currently consumed by [AlphaLive](https://github.com/bernardoguterres/AlphaLive)'s pre-execution sentiment gate (see [System Integration](#system-integration) below).
 
 ## Architecture
 
@@ -130,11 +130,11 @@ Railway assigns `$PORT` at runtime; the Dockerfile and Procfile both bind to it 
 
 **Persistent storage:** `data/` (FAISS index, SQLite metadata, embedding cache) is excluded from the Docker image via `.dockerignore` and is empty on every fresh container. **Mount a Railway Volume at `/app/data`** before ingesting the corpus, or every redeploy silently wipes it and `/sentiment/{ticker}` goes back to returning empty signals for every ticker.
 
-**Wiring up AlphaLive:** once deployed, set `ALPHASIGNAL_URL` to this service's Railway-assigned URL (and `ALPHASIGNAL_ENABLED=true`) in AlphaLive's environment so the sentiment gate can actually reach it — the default `http://localhost:8000` only works when both services run on the same machine.
+**Wiring up AlphaLive:** once deployed, set `ALPHASIGNAL_URL` to this service's Railway-assigned URL (and `ALPHASIGNAL_ENABLED=true`) in AlphaLive's environment so the sentiment gate can actually reach it - the default `http://localhost:8000` only works when both services run on the same machine.
 
 ## API Reference
 
-> The examples below match `alphasignal/api/schemas.py` exactly (verified 2026-07-01) — the response shapes shown here are what the API actually returns, not an aspirational spec.
+> The examples below match `alphasignal/api/schemas.py` exactly (verified 2026-07-01) - the response shapes shown here are what the API actually returns, not an aspirational spec.
 
 ### POST /query
 
@@ -293,7 +293,7 @@ curl -X POST http://localhost:8000/ingest/batch \
 
 ### GET /health
 
-Health check endpoint — reports whether the FAISS index and SQLite metadata store are actually loaded.
+Health check endpoint - reports whether the FAISS index and SQLite metadata store are actually loaded.
 
 **Request:**
 
@@ -381,11 +381,11 @@ AlphaSignal is part of a multi-repo algorithmic trading system. Actual integrati
 
 | Repo | Purpose | AlphaSignal connected? |
 |------|---------|------------------------|
-| **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** | 24/7 execution engine — runs strategies exported from AlphaLab | Live (2026-05-25) — calls `/sentiment/{ticker}` before every order |
-| **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Backtesting platform | Not connected — no code in AlphaLab calls AlphaSignal's API. AlphaLab's fundamental screener uses yfinance directly instead |
-| **[DeepLOB](https://github.com/bernardoguterres/DeepLOB)** | CNN+LSTM LOB mid-price predictor — runs alongside AlphaSignal in the execution gate | Concurrent (both called via `asyncio.gather` in AlphaLive) |
+| **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** | 24/7 execution engine - runs strategies exported from AlphaLab | Live (2026-05-25) - calls `/sentiment/{ticker}` before every order |
+| **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Backtesting platform | Not connected - no code in AlphaLab calls AlphaSignal's API. AlphaLab's fundamental screener uses yfinance directly instead |
+| **[DeepLOB](https://github.com/bernardoguterres/DeepLOB)** | CNN+LSTM LOB mid-price predictor - runs alongside AlphaSignal in the execution gate | Concurrent (both called via `asyncio.gather` in AlphaLive) |
 
-AlphaSignal's `/sentiment/{ticker}` endpoint is called by AlphaLive before every order, running **concurrently** with the DeepLOB LOB filter via `asyncio.gather` — both checks complete in parallel rather than sequentially. Strongly negative sentiment suppresses long entries; strongly positive suppresses shorts. Both filters fail open — AlphaLive trades normally if either service is unreachable.
+AlphaSignal's `/sentiment/{ticker}` endpoint is called by AlphaLive before every order, running **concurrently** with the DeepLOB LOB filter via `asyncio.gather` - both checks complete in parallel rather than sequentially. Strongly negative sentiment suppresses long entries; strongly positive suppresses shorts. Both filters fail open - AlphaLive trades normally if either service is unreachable.
 
 **Current limitation:** the FAISS index has no real data ingested yet (see Roadmap), so the sentiment filter is wired correctly end-to-end but returns neutral scores until the corpus is built.
 
@@ -667,8 +667,8 @@ embeddings:
 
 ### Long-term
 - [ ] Multi-modal support (charts, images from filings)
-- [ ] Integration with AlphaLab backtesting platform (not built — AlphaLab's fundamental screener currently calls yfinance directly instead of AlphaSignal's API)
-- [x] Deployment config for production (Dockerfile/Procfile/railway.toml, validated on Railway's `amd64` architecture) — **not yet actually deployed**; still needs a live Railway service and the corpus ingested
+- [ ] Integration with AlphaLab backtesting platform (not built - AlphaLab's fundamental screener currently calls yfinance directly instead of AlphaSignal's API)
+- [x] Deployment config for production (Dockerfile/Procfile/railway.toml, validated on Railway's `amd64` architecture) - **not yet actually deployed**; still needs a live Railway service and the corpus ingested
 - [ ] Build web UI for queries and sentiment visualization
 
 ## License

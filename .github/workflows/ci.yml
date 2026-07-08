@@ -24,5 +24,5 @@ jobs:
       - name: Run tests
         run: pytest alphasignal/tests/ -v --tb=short --cov=alphasignal --cov-report=term-missing
         env:
-          # OpenAI calls are mocked in tests — dummy key prevents accidental real calls.
+          # OpenAI calls are mocked in tests - dummy key prevents accidental real calls.
           OPENAI_API_KEY: sk-ci-dummy-key-for-testing
