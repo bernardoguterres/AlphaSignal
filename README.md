@@ -567,7 +567,7 @@ api:
 
 ### Running Tests
 
-150 tests, 92% coverage.
+152 tests, 92% coverage.
 
 ```bash
 # Run all tests
