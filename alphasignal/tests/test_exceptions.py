@@ -3,9 +3,9 @@
 from alphasignal.api.exceptions import (
     AlphaSignalError,
     DatabaseError,
+    GenerationError,
     IndexNotLoadedError,
     IngestionError,
-    OpenAIError,
 )
 
 
@@ -23,8 +23,8 @@ def test_alphasignal_error_stores_message_code_and_detail():
 
 
 def test_openai_error_has_fixed_code():
-    """Test that OpenAIError always carries the OPENAI_ERROR code."""
-    err = OpenAIError("rate limited", detail="429 from OpenAI")
+    """Test that GenerationError always carries the OPENAI_ERROR code."""
+    err = GenerationError("rate limited", detail="429 from OpenAI")
 
     assert err.code == "OPENAI_ERROR"
     assert err.message == "rate limited"

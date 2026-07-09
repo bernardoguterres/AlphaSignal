@@ -164,7 +164,7 @@ def main():
     logger.info(f"Saved corpus statistics to {stats_path}")
 
     # Print summary
-    print(f"\nCorpus built successfully:")
+    print("\nCorpus built successfully:")
     print(f"  - {len(tickers)} tickers")
     print(f"  - {total_filings} SEC filings")
     print(f"  - {total_articles} news articles")

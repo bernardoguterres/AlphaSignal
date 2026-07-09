@@ -34,11 +34,16 @@ class AlphaSignalError(Exception):
         self.extra = kwargs
 
 
-class OpenAIError(AlphaSignalError):
-    """Error from OpenAI API calls."""
+class GenerationError(AlphaSignalError):
+    """Error from OpenAI API calls (RAG generation, embeddings, sentiment).
+
+    Named distinctly from `openai.OpenAIError` - the routes catch and
+    re-raise the real SDK exception directly (see api/routes/query.py),
+    so a same-named class here would just be a confusing landmine.
+    """
 
     def __init__(self, message: str, detail: str | None = None):
-        """Initialize OpenAIError.
+        """Initialize GenerationError.
 
         Args:
             message: Error message from OpenAI or custom message

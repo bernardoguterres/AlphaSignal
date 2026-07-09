@@ -13,7 +13,7 @@ from alphasignal.api.dependencies import (
     get_metrics_collector,
     get_sentiment_extractor,
 )
-from alphasignal.api.schemas import ErrorResponse, SentimentResponse
+from alphasignal.api.schemas import SentimentResponse
 from alphasignal.generation.sentiment import SentimentExtractor
 from alphasignal.monitoring.metrics import MetricsCollector
 from alphasignal.store.metadata_store import MetadataStore

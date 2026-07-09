@@ -18,6 +18,7 @@ class EvalResults:
     ndcg_at_5: float  # Normalized Discounted Cumulative Gain @ 5
     ndcg_at_10: float  # NDCG @ 10
     hit_at_1: float  # Hit rate @ 1
+    hit_at_3: float  # Hit rate @ 3
     hit_at_5: float  # Hit rate @ 5
     hit_at_10: float  # Hit rate @ 10
     num_queries: int  # Number of queries evaluated
@@ -82,6 +83,7 @@ class RetrievalEvaluator:
                 ndcg_at_5=0.0,
                 ndcg_at_10=0.0,
                 hit_at_1=0.0,
+                hit_at_3=0.0,
                 hit_at_5=0.0,
                 hit_at_10=0.0,
                 num_queries=0,
@@ -94,6 +96,7 @@ class RetrievalEvaluator:
         ndcg_5_scores = []
         ndcg_10_scores = []
         hit_1_scores = []
+        hit_3_scores = []
         hit_5_scores = []
         hit_10_scores = []
 
@@ -125,6 +128,9 @@ class RetrievalEvaluator:
             hit_1_scores.append(
                 self.compute_hit_at_k(retrieved_ids[:1], relevant_chunk_ids)
             )
+            hit_3_scores.append(
+                self.compute_hit_at_k(retrieved_ids[:3], relevant_chunk_ids)
+            )
             hit_5_scores.append(
                 self.compute_hit_at_k(retrieved_ids[:5], relevant_chunk_ids)
             )
@@ -138,6 +144,7 @@ class RetrievalEvaluator:
             ndcg_at_5=float(np.mean(ndcg_5_scores)),
             ndcg_at_10=float(np.mean(ndcg_10_scores)),
             hit_at_1=float(np.mean(hit_1_scores)),
+            hit_at_3=float(np.mean(hit_3_scores)),
             hit_at_5=float(np.mean(hit_5_scores)),
             hit_at_10=float(np.mean(hit_10_scores)),
             num_queries=len(self.golden_set),

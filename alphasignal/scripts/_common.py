@@ -36,6 +36,7 @@ def build_storage_components(
         Tuple of (vector_store, metadata_store, embedder)
     """
     storage_config = config.get("storage", {})
+    Path("data").mkdir(exist_ok=True)
 
     vector_store = VectorStore(
         storage_config.get("faiss_index_path", "data/faiss_index"), dim=1536

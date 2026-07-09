@@ -158,6 +158,30 @@ def test_evaluator_evaluate_applies_reranker_when_provided():
     assert results.mrr == 1.0
 
 
+def test_evaluator_evaluate_populates_hit_at_3():
+    """Test that evaluate() actually computes hit_at_3, not a hit_at_5 proxy."""
+    from unittest.mock import MagicMock
+
+    evaluator = RetrievalEvaluator.__new__(RetrievalEvaluator)
+    evaluator.golden_set_path = None
+    evaluator.golden_set = [
+        {"query": "test query", "relevant_chunk_ids": ["c4"], "ticker": "AAPL"}
+    ]
+
+    # Relevant chunk is ranked 4th - present in top 5/10 but absent from top 1/3.
+    mock_retriever = MagicMock()
+    mock_retriever.retrieve.return_value = [
+        MagicMock(chunk_id=cid) for cid in ["c1", "c2", "c3", "c4"]
+    ]
+
+    results = evaluator.evaluate(mock_retriever, top_k=10)
+
+    assert results.hit_at_1 == 0.0
+    assert results.hit_at_3 == 0.0
+    assert results.hit_at_5 == 1.0
+    assert results.hit_at_10 == 1.0
+
+
 def test_compute_ndcg_empty_inputs_return_zero():
     """Test that compute_ndcg handles empty retrieved/relevant lists without dividing by zero."""
     assert RetrievalEvaluator.compute_ndcg([], {"a"}) == 0.0

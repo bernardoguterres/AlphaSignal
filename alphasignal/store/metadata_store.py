@@ -5,7 +5,7 @@ from datetime import date as date_type
 from datetime import datetime
 from pathlib import Path
 
-from sqlmodel import Field, Session, SQLModel, create_engine, select
+from sqlmodel import Field, Session, SQLModel, create_engine, func, select
 
 from alphasignal.ingestion import Chunk
 
@@ -85,6 +85,23 @@ class MetadataStore:
 
         logger.info(f"Added {len(chunks)} chunks to metadata store")
 
+    @staticmethod
+    def _to_chunk(record: ChunkRecord) -> Chunk:
+        """Convert a ChunkRecord (DB row) into the plain Chunk domain object."""
+        return Chunk(
+            chunk_id=record.chunk_id,
+            ticker=record.ticker,
+            text=record.text,
+            token_count=record.token_count,
+            doc_type=record.doc_type,
+            source=record.source,
+            section=record.section,
+            date=record.date,
+            url=record.url,
+            chunk_index=record.chunk_index,
+            total_chunks=record.total_chunks
+        )
+
     def get_chunk(self, chunk_id: str) -> Chunk | None:
         """Retrieve a chunk by ID.
 
@@ -100,19 +117,7 @@ class MetadataStore:
             if not record:
                 return None
 
-            return Chunk(
-                chunk_id=record.chunk_id,
-                ticker=record.ticker,
-                text=record.text,
-                token_count=record.token_count,
-                doc_type=record.doc_type,
-                source=record.source,
-                section=record.section,
-                date=record.date,
-                url=record.url,
-                chunk_index=record.chunk_index,
-                total_chunks=record.total_chunks
-            )
+            return self._to_chunk(record)
 
     def get_chunks_by_ticker(
         self,
@@ -136,22 +141,7 @@ class MetadataStore:
 
             records = session.exec(statement).all()
 
-            return [
-                Chunk(
-                    chunk_id=r.chunk_id,
-                    ticker=r.ticker,
-                    text=r.text,
-                    token_count=r.token_count,
-                    doc_type=r.doc_type,
-                    source=r.source,
-                    section=r.section,
-                    date=r.date,
-                    url=r.url,
-                    chunk_index=r.chunk_index,
-                    total_chunks=r.total_chunks
-                )
-                for r in records
-            ]
+            return [self._to_chunk(r) for r in records]
 
     def get_chunks_by_date_range(
         self,
@@ -180,22 +170,7 @@ class MetadataStore:
 
             records = session.exec(statement).all()
 
-            return [
-                Chunk(
-                    chunk_id=r.chunk_id,
-                    ticker=r.ticker,
-                    text=r.text,
-                    token_count=r.token_count,
-                    doc_type=r.doc_type,
-                    source=r.source,
-                    section=r.section,
-                    date=r.date,
-                    url=r.url,
-                    chunk_index=r.chunk_index,
-                    total_chunks=r.total_chunks
-                )
-                for r in records
-            ]
+            return [self._to_chunk(r) for r in records]
 
     def get_all_chunk_ids(self) -> list[str]:
         """Get all chunk IDs.
@@ -214,5 +189,5 @@ class MetadataStore:
             Number of chunks in the database
         """
         with Session(self.engine) as session:
-            statement = select(ChunkRecord)
-            return len(list(session.exec(statement).all()))
+            statement = select(func.count()).select_from(ChunkRecord)
+            return session.exec(statement).one()

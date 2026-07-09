@@ -17,16 +17,13 @@ from alphasignal.api.routes import health, query, sentiment, ingest, metrics
 from alphasignal.api.schemas import ErrorResponse
 from alphasignal.api.state import AppState
 from alphasignal.api.exceptions import AlphaSignalError
-from alphasignal.embeddings.cache import EmbeddingCache
-from alphasignal.embeddings.embedder import Embedder
 from alphasignal.generation.generator import RAGGenerator
 from alphasignal.generation.sentiment import SentimentExtractor
 from alphasignal.ingestion.pipeline import IngestionPipeline
 from alphasignal.monitoring.metrics import MetricsCollector
 from alphasignal.retrieval.reranker import CrossEncoderReranker
 from alphasignal.retrieval.retriever import HybridRetriever
-from alphasignal.store.metadata_store import MetadataStore
-from alphasignal.store.vector_store import VectorStore
+from alphasignal.scripts._common import build_storage_components
 
 logger = logging.getLogger(__name__)
 
@@ -76,26 +73,10 @@ async def lifespan(app: FastAPI):
 
         logger.info(f"Loaded configuration for {len(config.get('tickers', []))} tickers")
 
-    storage_config = config.get("storage", {})
-    data_dir = Path("data")
-    data_dir.mkdir(exist_ok=True)
-
-    faiss_index_path = storage_config.get("faiss_index_path", "data/faiss_index")
-    sqlite_db_path = storage_config.get("sqlite_db_path", "data/metadata.db")
-    embeddings_cache_path = storage_config.get(
-        "embeddings_cache_path", "data/embeddings_cache"
-    )
-
-    vector_store = VectorStore(faiss_index_path, dim=1536)
-    vector_store.load()
+    vector_store, metadata_store, embedder = build_storage_components(config)
     logger.info(f"Vector store loaded: {len(vector_store)} vectors")
-
-    metadata_store = MetadataStore(sqlite_db_path)
     chunks_indexed = metadata_store.count()
     logger.info(f"Metadata store connected: {chunks_indexed} chunks indexed")
-
-    embedding_cache = EmbeddingCache(f"{embeddings_cache_path}/cache.pkl")
-    embedder = Embedder(config, embedding_cache)
     logger.info(f"Embedder initialized: {config['embeddings']['model']}")
 
     # Pass the shared vector/metadata stores and embedder to the pipeline so
@@ -122,7 +103,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"RAG generator initialized: {config['generation']['model']}")
 
     sentiment_extractor = SentimentExtractor(config)
-    logger.info(f"Sentiment extractor initialized")
+    logger.info("Sentiment extractor initialized")
 
     metrics_collector = MetricsCollector()
     logger.info("Metrics collector initialized")

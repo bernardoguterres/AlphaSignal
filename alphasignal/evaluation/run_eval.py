@@ -10,11 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import math
-import sys
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Optional
-from urllib.error import URLError
 from urllib.request import urlopen, Request as URLRequest
 
 logger = logging.getLogger(__name__)

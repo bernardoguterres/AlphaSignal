@@ -1,6 +1,6 @@
 """Tests for the MetricsCollector."""
 
-from alphasignal.monitoring.metrics import MetricsCollector
+from alphasignal.monitoring.metrics import MAX_LATENCY_SAMPLES, MetricsCollector
 
 
 def test_metrics_collector_starts_empty():
@@ -58,3 +58,21 @@ def test_record_error_increments_error_count():
 
     summary = collector.get_summary()
     assert summary["errors"]["count"] == 3
+
+
+def test_latency_samples_are_capped_but_count_stays_accurate():
+    """Test that the percentile sample window is bounded, without losing the true count.
+
+    A long-running process must not grow these lists forever, but "count"
+    still needs to reflect the true number of requests served, not just
+    however many latency samples are currently retained.
+    """
+    collector = MetricsCollector()
+
+    for i in range(MAX_LATENCY_SAMPLES + 500):
+        collector.record_query(float(i))
+
+    summary = collector.get_summary()
+
+    assert summary["query"]["count"] == MAX_LATENCY_SAMPLES + 500
+    assert len(collector._query_latencies) == MAX_LATENCY_SAMPLES

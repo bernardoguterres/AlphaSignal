@@ -1,11 +1,17 @@
 """Metrics collection and monitoring."""
 
 import logging
-from typing import Dict, List
+from collections import deque
+from typing import Deque, Dict
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Rolling window for percentile computation. Bounded so a long-running
+# process doesn't grow these lists forever - "count" below still tracks
+# the true lifetime total, only the percentile sample window is capped.
+MAX_LATENCY_SAMPLES = 1000
 
 
 class MetricsCollector:
@@ -13,9 +19,12 @@ class MetricsCollector:
 
     def __init__(self):
         """Initialize metrics collector."""
-        self._query_latencies: List[float] = []
-        self._ingest_latencies: List[float] = []
-        self._sentiment_latencies: List[float] = []
+        self._query_latencies: Deque[float] = deque(maxlen=MAX_LATENCY_SAMPLES)
+        self._ingest_latencies: Deque[float] = deque(maxlen=MAX_LATENCY_SAMPLES)
+        self._sentiment_latencies: Deque[float] = deque(maxlen=MAX_LATENCY_SAMPLES)
+        self._query_count: int = 0
+        self._ingest_count: int = 0
+        self._sentiment_count: int = 0
         self._error_count: int = 0
 
     def record_query(self, latency_ms: float):
@@ -25,6 +34,7 @@ class MetricsCollector:
             latency_ms: Latency in milliseconds
         """
         self._query_latencies.append(latency_ms)
+        self._query_count += 1
 
     def record_ingest(self, latency_ms: float):
         """Record an ingestion request latency.
@@ -33,6 +43,7 @@ class MetricsCollector:
             latency_ms: Latency in milliseconds
         """
         self._ingest_latencies.append(latency_ms)
+        self._ingest_count += 1
 
     def record_sentiment(self, latency_ms: float):
         """Record a sentiment request latency.
@@ -41,13 +52,14 @@ class MetricsCollector:
             latency_ms: Latency in milliseconds
         """
         self._sentiment_latencies.append(latency_ms)
+        self._sentiment_count += 1
 
     def record_error(self):
         """Record an error occurrence."""
         self._error_count += 1
 
     @staticmethod
-    def _percentiles(latencies: List[float]) -> Dict[str, float]:
+    def _percentiles(latencies) -> Dict[str, float]:
         """Compute p50/p95/p99 for a list of latencies.
 
         Args:
@@ -74,15 +86,15 @@ class MetricsCollector:
         """
         return {
             "query": {
-                "count": len(self._query_latencies),
+                "count": self._query_count,
                 "percentiles": self._percentiles(self._query_latencies),
             },
             "ingest": {
-                "count": len(self._ingest_latencies),
+                "count": self._ingest_count,
                 "percentiles": self._percentiles(self._ingest_latencies),
             },
             "sentiment": {
-                "count": len(self._sentiment_latencies),
+                "count": self._sentiment_count,
                 "percentiles": self._percentiles(self._sentiment_latencies),
             },
             "errors": {"count": self._error_count},

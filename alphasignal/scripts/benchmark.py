@@ -124,7 +124,7 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
         "config_name": config_spec["name"],
         "mrr_at_10": round(eval_results.mrr, 3),
         "ndcg_at_5": round(eval_results.ndcg_at_5, 3),
-        "hit_at_3": round(eval_results.hit_at_5, 3),  # Using hit@5 as proxy for hit@3
+        "hit_at_3": round(eval_results.hit_at_3, 3),
         "avg_latency_ms": avg_latency_ms,
         "num_queries": eval_results.num_queries,
     }
