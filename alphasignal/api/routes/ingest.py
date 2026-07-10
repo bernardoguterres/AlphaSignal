@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/batch", response_model=BatchIngestResponse)
-async def ingest_batch(
+def ingest_batch(
     body: BatchIngestRequest,
     pipeline: IngestionPipeline = Depends(get_pipeline),
     retriever: HybridRetriever = Depends(get_retriever),
@@ -103,7 +103,7 @@ async def ingest_batch(
 
 
 @router.post("/{ticker}", response_model=IngestResponse)
-async def ingest(
+def ingest(
     ticker: str,
     body: IngestRequest | None = None,
     pipeline: IngestionPipeline = Depends(get_pipeline),

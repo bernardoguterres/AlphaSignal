@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("/")
-async def get_metrics(
+def get_metrics(
     state: AppState = Depends(get_app_state),
     metadata_store: MetadataStore = Depends(get_metadata_store),
 ):

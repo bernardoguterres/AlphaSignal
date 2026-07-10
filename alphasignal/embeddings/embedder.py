@@ -27,7 +27,7 @@ class Embedder:
 
         # Get embedding config
         embedding_config = config.get("embeddings", {})
-        self.model = embedding_config.get("model", "text-embedding-ada-002")
+        self.model = embedding_config.get("model", "text-embedding-3-small")
         self.batch_size = embedding_config.get("batch_size", 100)
         self.max_retries = embedding_config.get("max_retries", 3)
         self.retry_delay = embedding_config.get("retry_delay", 1.0)

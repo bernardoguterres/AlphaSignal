@@ -18,7 +18,7 @@ class VectorStore:
 
         Args:
             index_path: Path to store index files
-            dim: Embedding dimension (default 1536 for ada-002)
+            dim: Embedding dimension (default 1536 - both ada-002 and text-embedding-3-small)
         """
         self.index_path = Path(index_path)
         self.index_path.mkdir(parents=True, exist_ok=True)

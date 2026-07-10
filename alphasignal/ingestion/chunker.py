@@ -29,7 +29,7 @@ class SemanticChunker:
         self.max_tokens = chunking_config.get("max_tokens", 400)
         self.overlap_tokens = chunking_config.get("overlap_tokens", 50)
 
-        # Initialize tiktoken encoder (same as text-embedding-ada-002)
+        # Initialize tiktoken encoder (cl100k_base - used by OpenAI embedding models)
         self.encoder = tiktoken.get_encoding("cl100k_base")
 
     def count_tokens(self, text: str) -> int:

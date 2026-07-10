@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/{ticker}", response_model=SentimentResponse)
-async def get_sentiment(
+def get_sentiment(
     ticker: str,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
@@ -112,7 +112,7 @@ async def get_sentiment(
 
 
 @router.get("/{ticker}/summary")
-async def get_sentiment_summary(
+def get_sentiment_summary(
     ticker: str,
     metadata_store: MetadataStore = Depends(get_metadata_store),
     sentiment_extractor: SentimentExtractor = Depends(get_sentiment_extractor),

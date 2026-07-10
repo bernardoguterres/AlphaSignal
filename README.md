@@ -12,11 +12,11 @@ flowchart TD
     C --> D
     D --> E[Semantic Chunker<br/>300±100 tokens]
     E --> F[Chunk Store]
-    F --> G[Embedder<br/>OpenAI ada-002]
+    F --> G[Embedder<br/>OpenAI text-embedding-3-small]
     G --> H[Vector Store<br/>FAISS Index]
     G --> I[Metadata Store<br/>SQLite DB]
     
-    J[User Query] --> K[Query Embedder<br/>OpenAI ada-002]
+    J[User Query] --> K[Query Embedder<br/>OpenAI text-embedding-3-small]
     K --> L[Dense Retrieval<br/>FAISS Cosine Sim]
     J --> M[Sparse Retrieval<br/>BM25 Keywords]
     L --> N[Hybrid Merge<br/>40% BM25 + 60% Dense]
@@ -126,7 +126,7 @@ railway up
 
 Railway assigns `$PORT` at runtime; the Dockerfile and Procfile both bind to it automatically.
 
-**Required env vars:** `OPENAI_API_KEY`
+**Required env vars:** `OPENAI_API_KEY`. **Strongly recommended:** `ALPHASIGNAL_API_KEY` (enables auth - see Environment Variables below).
 
 **Persistent storage:** `data/` (FAISS index, SQLite metadata, embedding cache) is excluded from the Docker image via `.dockerignore` and is empty on every fresh container. **Mount a Railway Volume at `/app/data`** before ingesting the corpus, or every redeploy silently wipes it and `/sentiment/{ticker}` goes back to returning empty signals for every ticker.
 
@@ -347,20 +347,9 @@ curl http://localhost:8000/metrics/
 
 ## Evaluation
 
-AlphaSignal includes a comprehensive retrieval evaluation framework with a golden set of 50 Q&A pairs across 10 tickers. The system benchmarks four different retrieval configurations (naive/semantic chunking, dense/hybrid retrieval, ±reranking) using standard IR metrics.
+AlphaSignal includes a retrieval evaluation framework with a golden set of 50 Q&A pairs across 10 tickers. It benchmarks four retrieval configurations (naive/semantic chunking, dense/hybrid retrieval, ±reranking) using standard IR metrics (MRR@10, NDCG@5, Hit@3, latency).
 
-**Benchmark Results:**
-
-| Config | MRR@10 | NDCG@5 | Hit@3 | Avg Latency |
-|--------|--------|--------|-------|-------------|
-| Baseline: naive chunks + dense only | TBD | TBD | TBD | TBDms |
-| Semantic chunks + dense only | TBD | TBD | TBD | TBDms |
-| Semantic chunks + hybrid | TBD | TBD | TBD | TBDms |
-| Semantic chunks + hybrid + reranker | TBD | TBD | TBD | TBDms |
-
-**Key Findings:** Hybrid retrieval combining BM25 + dense embeddings significantly outperforms dense-only search for financial queries. Cross-encoder reranking provides additional precision gains. Semantic chunking preserves context boundaries and improves retrieval quality over fixed-size chunks.
-
-For full evaluation methodology, metrics definitions, and failure case analysis, see [EVALUATION.md](EVALUATION.md).
+**The benchmark has not been run yet** - it requires the corpus to be ingested first (see Roadmap; ingestion costs real OpenAI usage). Once the corpus exists, `alphasignal/scripts/benchmark.py` produces the comparison table; results will be published here. No retrieval-quality claims are made until then.
 
 To run the benchmark yourself:
 
@@ -479,6 +468,7 @@ AlphaSignal/
 ### Environment Variables
 
 - `OPENAI_API_KEY` (required): Your OpenAI API key for embeddings and generation
+- `ALPHASIGNAL_API_KEY` (recommended for any public deploy): when set, every route except `/health` requires a matching `X-API-Key` header. Unset = open access (local dev only - a public unauthenticated deploy lets anyone spend your OpenAI budget via `/query` and `/ingest`). Set the same value in AlphaLive's `ALPHASIGNAL_API_KEY` so its sentiment client authenticates.
 
 ### config.yaml
 
@@ -512,10 +502,10 @@ chunking:
   overlap_tokens: 50
 ```
 
-**Embeddings:** OpenAI model and batch size
+**Embeddings:** OpenAI model and batch size (text-embedding-3-small: same 1536 dims as ada-002, ~6x cheaper, better retrieval quality)
 ```yaml
 embeddings:
-  model: "text-embedding-ada-002"
+  model: "text-embedding-3-small"
   batch_size: 100
 ```
 

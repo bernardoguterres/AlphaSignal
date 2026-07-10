@@ -87,14 +87,26 @@ def client(tmp_path):
         # Attach to app
         test_app.state.app_state = app_state
 
-        # Register routes
+        # Register routes - mirror production wiring in app.py exactly,
+        # including the auth dependency (all routers except /health), so
+        # auth behavior tested here matches the real app.
+        from fastapi import Depends
+        from alphasignal.api.dependencies import require_api_key
+
+        _auth = [Depends(require_api_key)]
         test_app.include_router(health.router, prefix="/health", tags=["health"])
-        test_app.include_router(query.router, prefix="/query", tags=["query"])
         test_app.include_router(
-            sentiment.router, prefix="/sentiment", tags=["sentiment"]
+            query.router, prefix="/query", tags=["query"], dependencies=_auth
         )
-        test_app.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
-        test_app.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
+        test_app.include_router(
+            sentiment.router, prefix="/sentiment", tags=["sentiment"], dependencies=_auth
+        )
+        test_app.include_router(
+            ingest.router, prefix="/ingest", tags=["ingest"], dependencies=_auth
+        )
+        test_app.include_router(
+            metrics.router, prefix="/metrics", tags=["metrics"], dependencies=_auth
+        )
 
         yield TestClient(test_app)
 
@@ -719,3 +731,38 @@ def test_all_responses_include_latency_ms(client, mock_retrieved_chunks):
         ingest_response = client.post("/ingest/AAPL")
         assert "latency_ms" in ingest_response.json()
         assert ingest_response.json()["latency_ms"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# API-key auth (ALPHASIGNAL_API_KEY)
+# ---------------------------------------------------------------------------
+
+
+class TestApiKeyAuth:
+    """Auth is off when ALPHASIGNAL_API_KEY is unset (all other tests rely on
+    that); when set, every route except /health requires X-API-Key."""
+
+    def test_routes_open_when_auth_unset(self, client, monkeypatch):
+        monkeypatch.delenv("ALPHASIGNAL_API_KEY", raising=False)
+        assert client.get("/metrics/").status_code == 200
+
+    def test_protected_route_401_without_key(self, client, monkeypatch):
+        monkeypatch.setenv("ALPHASIGNAL_API_KEY", "secret123")
+        assert client.get("/metrics/").status_code == 401
+        assert client.get("/sentiment/AAPL").status_code == 401
+        assert client.post("/query/", json={"query": "test"}).status_code == 401
+
+    def test_protected_route_401_with_wrong_key(self, client, monkeypatch):
+        monkeypatch.setenv("ALPHASIGNAL_API_KEY", "secret123")
+        resp = client.get("/metrics/", headers={"X-API-Key": "wrong"})
+        assert resp.status_code == 401
+
+    def test_protected_route_ok_with_correct_key(self, client, monkeypatch):
+        monkeypatch.setenv("ALPHASIGNAL_API_KEY", "secret123")
+        resp = client.get("/metrics/", headers={"X-API-Key": "secret123"})
+        assert resp.status_code == 200
+
+    def test_health_stays_open_with_auth_enabled(self, client, monkeypatch):
+        """Railway's healthcheck can't send headers - /health must stay open."""
+        monkeypatch.setenv("ALPHASIGNAL_API_KEY", "secret123")
+        assert client.get("/health/").status_code == 200

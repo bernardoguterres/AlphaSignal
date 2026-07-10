@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=QueryResponse)
-async def query(
+def query(
     request: QueryRequest,
     retriever: HybridRetriever = Depends(get_retriever),
     reranker: CrossEncoderReranker = Depends(get_reranker),

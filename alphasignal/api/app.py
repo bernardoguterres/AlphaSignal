@@ -9,11 +9,12 @@ from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from alphasignal.api.routes import health, query, sentiment, ingest, metrics
+from alphasignal.api.dependencies import require_api_key
 from alphasignal.api.schemas import ErrorResponse
 from alphasignal.api.state import AppState
 from alphasignal.api.exceptions import AlphaSignalError
@@ -57,6 +58,13 @@ def setup_logging() -> None:
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events."""
     setup_logging()
+    if os.getenv("ALPHASIGNAL_API_KEY", ""):
+        logger.info("API-key auth ENABLED (ALPHASIGNAL_API_KEY set) - all routes except /health require X-API-Key")
+    else:
+        logger.warning(
+            "API-key auth DISABLED (ALPHASIGNAL_API_KEY not set) - fine locally, "
+            "but set it before any public deploy or anyone can spend the OpenAI budget"
+        )
     # Startup
     logger.info("=" * 80)
     logger.info("AlphaSignal starting up")
@@ -200,8 +208,11 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 # Register routers
+# /health stays open (Railway's healthcheck can't send headers); everything
+# else requires X-API-Key once ALPHASIGNAL_API_KEY is set on the server.
+_auth = [Depends(require_api_key)]
 app.include_router(health.router, prefix="/health", tags=["health"])
-app.include_router(query.router, prefix="/query", tags=["query"])
-app.include_router(sentiment.router, prefix="/sentiment", tags=["sentiment"])
-app.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
-app.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
+app.include_router(query.router, prefix="/query", tags=["query"], dependencies=_auth)
+app.include_router(sentiment.router, prefix="/sentiment", tags=["sentiment"], dependencies=_auth)
+app.include_router(ingest.router, prefix="/ingest", tags=["ingest"], dependencies=_auth)
+app.include_router(metrics.router, prefix="/metrics", tags=["metrics"], dependencies=_auth)

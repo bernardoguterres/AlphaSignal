@@ -33,7 +33,7 @@ chunking:
   overlap_tokens: 50
 
 embeddings:
-  model: "text-embedding-ada-002"
+  model: "text-embedding-3-small"
   batch_size: 100
   max_retries: 3
   retry_delay: 1.0

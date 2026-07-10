@@ -1,6 +1,9 @@
 """Dependency injection for FastAPI routes."""
 
-from fastapi import Request
+import os
+import secrets
+
+from fastapi import Header, HTTPException, Request
 
 from alphasignal.api.state import AppState
 from alphasignal.generation.generator import RAGGenerator
@@ -126,3 +129,20 @@ def get_metrics_collector(request: Request) -> MetricsCollector:
     """
     state = get_app_state(request)
     return state.metrics_collector
+
+
+def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Reject requests without a valid X-API-Key when auth is configured.
+
+    Auth is enabled by setting the ALPHASIGNAL_API_KEY env var on the server;
+    unset = open (local dev). AlphaLive's client already sends this header
+    when its own ALPHASIGNAL_API_KEY env var is set - use the same value on
+    both services. Applied to every router except /health (Railway's
+    healthcheck can't send headers). Without this, a public deploy lets
+    anyone spend the OpenAI budget via /query and /ingest.
+    """
+    expected = os.getenv("ALPHASIGNAL_API_KEY", "")
+    if not expected:
+        return  # auth not configured - open access
+    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
