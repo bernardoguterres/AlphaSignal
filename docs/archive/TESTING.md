@@ -2,7 +2,7 @@
 
 ## Overview
 
-AlphaSignal has a comprehensive test suite with 74 tests covering all major components. Test coverage is **89%**.
+AlphaSignal has a comprehensive test suite with 152 tests covering all major components. Test coverage is **92%**.
 
 ## Running Tests
 
@@ -108,7 +108,7 @@ Tests use `unittest.mock.patch` to mock external dependencies:
 | Stores | 94% |
 | API routes | 83-86% |
 | Ingestion | 77-87% |
-| Overall | **89%** |
+| Overall | **92%** |
 
 ## Writing New Tests
 
