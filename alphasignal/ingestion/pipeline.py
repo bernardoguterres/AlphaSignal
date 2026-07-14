@@ -79,7 +79,7 @@ class IngestionPipeline:
             cache_path = storage_config.get(
                 "embeddings_cache_path", "data/embeddings_cache"
             )
-            self.embedding_cache = EmbeddingCache(f"{cache_path}/cache.pkl")
+            self.embedding_cache = EmbeddingCache(f"{cache_path}/cache.npy")
             self.embedder = Embedder(config=config, cache=self.embedding_cache)
 
         # Initialize metadata store (unless shared instance provided)

@@ -79,12 +79,17 @@ def get_sentiment(
 
         logger.info(f"Found {len(chunks)} chunks for {ticker}")
 
-        # Handle no chunks
+        # Handle no chunks - data_available=False makes "never ingested"
+        # explicit and distinct from a genuinely neutral 0.0 score.
         if not chunks:
             latency_ms = int((time.time() - start_time) * 1000)
             metrics_collector.record_sentiment(latency_ms)
             return SentimentResponse(
-                ticker=ticker, signals=[], latest_score=None, latency_ms=latency_ms
+                ticker=ticker,
+                signals=[],
+                latest_score=None,
+                latency_ms=latency_ms,
+                data_available=False,
             )
 
         # Extract sentiment signals

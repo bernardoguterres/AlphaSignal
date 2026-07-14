@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 import re
 from datetime import datetime, timedelta
 
@@ -88,12 +89,33 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
             # Parse JSON
             sentiment_data = self._parse_sentiment_json(response_text)
 
-            # Validate and clamp scores
-            score = float(sentiment_data.get("score", 0.0))
-            score = max(-1.0, min(1.0, score))  # Clamp to [-1, 1]
+            # Validate and clamp scores. NaN/Infinity must be rejected
+            # BEFORE clamping, not clamped: Python's max()/min() don't
+            # special-case NaN (every comparison against NaN is False), so
+            # max(-1.0, min(1.0, nan)) silently evaluates to 1.0 - a
+            # malformed/NaN score from the LLM provider would otherwise
+            # become a false maximally-bullish signal instead of failing
+            # safe (audit finding, 2026-07-14).
+            raw_score = float(sentiment_data.get("score", 0.0))
+            raw_confidence = float(sentiment_data.get("confidence", 0.0))
+            if not (math.isfinite(raw_score) and math.isfinite(raw_confidence)):
+                logger.error(
+                    f"Non-finite sentiment score/confidence from provider for "
+                    f"chunk {chunk.chunk_id}: score={raw_score}, confidence={raw_confidence} "
+                    f"- treating as a provider malfunction, defaulting to neutral"
+                )
+                result = SentimentResult(
+                    score=0.0,
+                    confidence=0.0,
+                    key_positive=[],
+                    key_negative=[],
+                    summary="Invalid score from provider",
+                )
+                self._cache[chunk.chunk_id] = (result, datetime.now())
+                return result
 
-            confidence = float(sentiment_data.get("confidence", 0.0))
-            confidence = max(0.0, min(1.0, confidence))  # Clamp to [0, 1]
+            score = max(-1.0, min(1.0, raw_score))  # Clamp to [-1, 1]
+            confidence = max(0.0, min(1.0, raw_confidence))  # Clamp to [0, 1]
 
             result = SentimentResult(
                 score=score,

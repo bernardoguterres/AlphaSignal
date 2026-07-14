@@ -37,6 +37,40 @@ def test_evaluator_loads_golden_set(golden_set_path):
         assert "question_type" in entry, "Missing 'question_type' field"
 
 
+def test_evaluator_evaluate_runs_against_real_golden_set_question_field(golden_set_path):
+    """Audit bug: evaluate() read item["query"], but the real committed
+    golden set uses "question" - this raised a raw KeyError and was never
+    caught because every other test used a synthetic golden set with
+    "query". Run evaluate() against the actual file to close that gap."""
+    from unittest.mock import MagicMock
+
+    if not golden_set_path.exists():
+        pytest.skip("Golden set not yet created")
+
+    evaluator = RetrievalEvaluator(str(golden_set_path))
+    assert len(evaluator.golden_set) > 0
+    assert "question" in evaluator.golden_set[0]
+
+    mock_retriever = MagicMock()
+    mock_retriever.retrieve.return_value = []
+
+    # Must not raise KeyError.
+    results = evaluator.evaluate(mock_retriever, top_k=5)
+
+    assert results.num_queries == len(evaluator.golden_set)
+
+
+def test_evaluator_evaluate_raises_clear_error_when_query_field_missing():
+    """An entry with neither 'question' nor 'query' must fail loudly and
+    clearly, not with an opaque KeyError deep in dict access."""
+    evaluator = RetrievalEvaluator.__new__(RetrievalEvaluator)
+    evaluator.golden_set_path = None
+    evaluator.golden_set = [{"id": "bad", "relevant_chunk_ids": []}]
+
+    with pytest.raises(KeyError, match="question.*query"):
+        evaluator.evaluate(retriever=None, top_k=5)
+
+
 def test_evaluator_mrr_perfect_score():
     """Test MRR computation with perfect score."""
     ranked_ids = ["a", "b", "c"]

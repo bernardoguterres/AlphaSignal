@@ -161,7 +161,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # allow_credentials=True + allow_origins=["*"] is an invalid combination
+    # per the CORS spec (browsers reject it) and unnecessary here - auth is
+    # via the X-API-Key header (require_api_key), not cookies, so
+    # credentialed CORS isn't needed (audit finding, 2026-07-14).
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -197,11 +201,20 @@ async def alphasignal_error_handler(request: Request, exc: AlphaSignalError):
 # Exception handler for unhandled errors
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """Handle unhandled exceptions and return ErrorResponse."""
+    """Handle unhandled exceptions and return ErrorResponse.
+
+    detail intentionally omits str(exc): unhandled exceptions can carry
+    internals (file paths, SQL, stack frames, API key fragments in error
+    strings) that shouldn't reach a client. The full exception is still
+    logged server-side via exc_info=True above (audit finding: previously
+    detail=str(exc) leaked this to every caller, 2026-07-14).
+    """
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
 
     error_response = ErrorResponse(
-        error="Internal Server Error", code="INTERNAL_ERROR", detail=str(exc)
+        error="Internal Server Error",
+        code="INTERNAL_ERROR",
+        detail="An unexpected error occurred",
     )
 
     return JSONResponse(status_code=500, content=error_response.model_dump())

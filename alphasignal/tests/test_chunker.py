@@ -321,6 +321,33 @@ def test_chunk_article_long_article_produces_multiple_chunks(chunker):
     assert len({c.chunk_id for c in chunks}) == len(chunks)
 
 
+def test_chunk_text_merges_short_trailing_sentence_instead_of_dropping(chunker):
+    """Audit bug: a short trailing sentence left over after a full chunk was
+    silently discarded because it fell below min_tokens and chunks was
+    already non-empty. It must now be merged into the previous chunk instead
+    of vanishing from every output chunk."""
+    chunker.max_tokens = 60
+    chunker.min_tokens = 30
+    chunker.overlap_tokens = 10
+
+    # Enough sentences to fill and close out a full chunk...
+    body_sentences = [
+        "The company reported strong revenue growth across all major business segments this quarter."
+        for _ in range(6)
+    ]
+    # ...followed by one short closing sentence that alone is below min_tokens.
+    closing_sentence = "The outlook remains uncertain."
+
+    text = " ".join(body_sentences) + " " + closing_sentence
+
+    chunks = chunker.chunk_text(text)
+
+    assert len(chunks) >= 1
+    assert any(closing_sentence in c for c in chunks), (
+        "Short trailing sentence must appear in the output, not be silently dropped"
+    )
+
+
 def test_count_tokens_consistent_with_tiktoken(chunker):
     """Test that count_tokens returns expected values."""
     # Test known token counts

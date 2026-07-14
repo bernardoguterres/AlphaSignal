@@ -48,7 +48,7 @@ def build_storage_components(
     )
 
     embedding_cache = EmbeddingCache(
-        f"{storage_config.get('embeddings_cache_path', 'data/embeddings_cache')}/cache.pkl"
+        f"{storage_config.get('embeddings_cache_path', 'data/embeddings_cache')}/cache.npy"
     )
     embedder = Embedder(config, embedding_cache)
 

@@ -3,9 +3,10 @@
 import logging
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from alphasignal.api.dependencies import (
+    get_config,
     get_metrics_collector,
     get_pipeline,
     get_retriever,
@@ -30,6 +31,7 @@ def ingest_batch(
     pipeline: IngestionPipeline = Depends(get_pipeline),
     retriever: HybridRetriever = Depends(get_retriever),
     metrics_collector: MetricsCollector = Depends(get_metrics_collector),
+    config: dict = Depends(get_config),
 ) -> BatchIngestResponse:
     """Ingest multiple tickers in sequence.
 
@@ -38,6 +40,7 @@ def ingest_batch(
         pipeline: Ingestion pipeline instance
         retriever: Hybrid retriever instance
         metrics_collector: Metrics collector instance
+        config: Configuration dictionary
 
     Returns:
         BatchIngestResponse with results for each ticker
@@ -47,11 +50,30 @@ def ingest_batch(
     logger.info(f"Starting batch ingestion for {len(body.tickers)} tickers")
 
     results = []
+    # Audit finding: ingest had no ticker allowlist check at all, unlike
+    # /sentiment/{ticker} - anyone could trigger ingestion (real EDGAR/news
+    # fetches + OpenAI embedding spend) for an arbitrary ticker string
+    # (2026-07-14). A single invalid ticker in a batch is recorded as
+    # "failed" rather than aborting the rest of the batch.
+    valid_tickers = config.get("tickers", [])
 
     # Process each ticker sequentially to avoid rate limits
     for ticker in body.tickers:
         ticker = ticker.upper()
         ticker_start = time.time()
+
+        if ticker not in valid_tickers:
+            logger.warning(f"Rejecting batch ingest for unknown ticker {ticker}")
+            results.append(
+                IngestResponse(
+                    ticker=ticker,
+                    status="failed",
+                    chunks_created=0,
+                    chunks_stored=0,
+                    latency_ms=int((time.time() - ticker_start) * 1000),
+                )
+            )
+            continue
 
         try:
             logger.info(f"Batch ingesting {ticker}...")
@@ -109,6 +131,7 @@ def ingest(
     pipeline: IngestionPipeline = Depends(get_pipeline),
     retriever: HybridRetriever = Depends(get_retriever),
     metrics_collector: MetricsCollector = Depends(get_metrics_collector),
+    config: dict = Depends(get_config),
 ) -> IngestResponse:
     """Trigger full ingestion pipeline: ingest → chunk → embed → store.
 
@@ -118,14 +141,25 @@ def ingest(
         pipeline: Ingestion pipeline instance
         retriever: Hybrid retriever instance
         metrics_collector: Metrics collector instance
+        config: Configuration dictionary
 
     Returns:
         IngestResponse with ingestion and storage results
     """
     start_time = time.time()
 
+    ticker = ticker.upper()
+
+    # Audit finding: no ticker allowlist check existed here, unlike
+    # /sentiment/{ticker} - an arbitrary ticker string could trigger real
+    # EDGAR/news fetches and OpenAI embedding spend (2026-07-14).
+    valid_tickers = config.get("tickers", [])
+    if ticker not in valid_tickers:
+        raise HTTPException(
+            status_code=404, detail=f"Ticker {ticker} not found in knowledge base"
+        )
+
     try:
-        ticker = ticker.upper()
         logger.info(f"Starting ingestion for {ticker}")
 
         # Run full ingestion pipeline, honoring per-request filing overrides if provided

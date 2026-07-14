@@ -1,5 +1,6 @@
 """Tests for embeddings and storage."""
 
+import json
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -52,6 +53,59 @@ def test_vector_store_add_and_search(tmp_path):
     assert top_score > 0.99  # Should be very similar to itself
 
 
+def test_vector_store_add_dedupes_against_existing_chunk_ids(tmp_path):
+    """Regression test for the audit's confirmed FAISS/SQLite drift bug:
+    add() previously had no dedup/upsert at all, so re-ingesting the same
+    chunk (a retry, or a re-run of the same ticker) duplicated it in FAISS
+    while MetadataStore.add_chunks() correctly deduped via session.merge() -
+    len(vector_store) and metadata_store.count() would permanently drift
+    apart. Re-adding an already-present chunk_id must now be a no-op on
+    the vector side, matching the metadata side's upsert behavior."""
+    store = VectorStore(str(tmp_path / "index"), dim=1536)
+    store.load()
+
+    embeddings = np.random.rand(5, 1536).astype(np.float32)
+    chunk_ids = [f"chunk_{i:03d}" for i in range(5)]
+
+    store.add(embeddings, chunk_ids)
+    assert len(store) == 5
+
+    # Re-ingest the exact same chunks (simulates a retry / re-run) - must
+    # NOT duplicate them.
+    store.add(embeddings, chunk_ids)
+    assert len(store) == 5
+    assert len(store.chunk_ids) == 5
+
+    # A mix of already-present and genuinely new chunk_ids: only the new
+    # ones should be added.
+    more_embeddings = np.random.rand(3, 1536).astype(np.float32)
+    mixed_chunk_ids = ["chunk_000", "chunk_new_001", "chunk_new_002"]
+    store.add(more_embeddings, mixed_chunk_ids)
+
+    assert len(store) == 7  # 5 original + 2 genuinely new
+    assert store.chunk_ids.count("chunk_000") == 1  # not duplicated
+    assert "chunk_new_001" in store.chunk_ids
+    assert "chunk_new_002" in store.chunk_ids
+
+
+def test_vector_store_add_all_duplicates_is_noop(tmp_path):
+    """Adding a batch that's entirely already-present chunk_ids must not
+    touch the index or trigger a save at all."""
+    store = VectorStore(str(tmp_path / "index"), dim=1536)
+    store.load()
+
+    embeddings = np.random.rand(3, 1536).astype(np.float32)
+    chunk_ids = ["a", "b", "c"]
+    store.add(embeddings, chunk_ids)
+    assert len(store) == 3
+
+    with patch.object(store, "save") as mock_save:
+        store.add(embeddings, chunk_ids)  # all duplicates
+        mock_save.assert_not_called()
+
+    assert len(store) == 3
+
+
 def test_vector_store_persists_to_disk(tmp_path):
     """Test that vector store persists and loads from disk."""
     index_path = tmp_path / "index"
@@ -93,6 +147,36 @@ def test_vector_store_normalises_embeddings(tmp_path):
     # Scores should still be in [0, 1] range due to normalization
     for chunk_id, score in results:
         assert 0.0 <= score <= 1.0, f"Score {score} out of range [0, 1]"
+
+
+def test_vector_store_save_does_not_clobber_existing_files_on_mid_write_failure(tmp_path):
+    """Audit bug: save() wrote index.faiss and chunk_ids.json as two separate
+    non-atomic steps, so a crash between them left the on-disk pair
+    inconsistent. save() must write to temp files and only replace the real
+    files once both writes have succeeded - if the second write fails, the
+    original on-disk pair must be untouched."""
+    index_path = tmp_path / "index"
+
+    store = VectorStore(str(index_path), dim=1536)
+    store.load()
+
+    embeddings = np.random.rand(3, 1536).astype(np.float32)
+    store.add(embeddings, ["a", "b", "c"])
+
+    index_file = index_path / "index.faiss"
+    ids_file = index_path / "chunk_ids.json"
+    original_index_bytes = index_file.read_bytes()
+    original_ids_bytes = ids_file.read_bytes()
+
+    # Simulate the chunk_ids write failing after the FAISS index write
+    # would otherwise have already landed.
+    store.chunk_ids.append("d")
+    with patch("builtins.open", side_effect=OSError("disk full")):
+        store.save()
+
+    # Original files must be untouched - no partial/inconsistent write.
+    assert index_file.read_bytes() == original_index_bytes
+    assert ids_file.read_bytes() == original_ids_bytes
 
 
 def test_vector_store_load_recovers_from_corrupted_index(tmp_path):
@@ -436,11 +520,31 @@ def test_embedding_cache_get_returns_none_for_missing_key(tmp_path):
 
 def test_embedding_cache_handles_corrupted_file_gracefully(tmp_path):
     """Test that a corrupted cache file falls back to an empty cache instead of raising."""
-    cache_path = tmp_path / "corrupt_cache.pkl"
-    cache_path.write_bytes(b"not a valid pickle stream")
+    cache_path = tmp_path / "corrupt_cache.npy"
+    # Write garbage directly to the derived vector/id paths the cache
+    # actually reads from (cache_path itself is never read).
+    cache_path.with_suffix(".npy").write_bytes(b"not a valid npy stream")
+    cache_path.with_suffix(".json").write_text("not valid json")
 
     cache = EmbeddingCache(str(cache_path))
 
+    assert len(cache) == 0
+
+
+def test_embedding_cache_rejects_pickled_payload(tmp_path):
+    """A .npy file must be loaded with allow_pickle=False - a pickled object
+    array (the old on-disk format) must not silently deserialize."""
+    import pickle
+
+    cache_path = tmp_path / "legacy_cache.npy"
+    # Simulate a stale pre-migration pickle file sitting at the new .npy path.
+    with open(cache_path.with_suffix(".npy"), "wb") as f:
+        pickle.dump({"chunk_001": np.random.rand(4).astype(np.float32)}, f)
+    cache_path.with_suffix(".json").write_text(json.dumps(["chunk_001"]))
+
+    cache = EmbeddingCache(str(cache_path))
+
+    # Must fail safe (empty cache), not execute/deserialize the pickle payload.
     assert len(cache) == 0
 
 

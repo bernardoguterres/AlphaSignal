@@ -149,6 +149,88 @@ def test_sentiment_extractor_handles_json_error(test_config, test_chunk):
         assert result.summary == "Parse error"
 
 
+def test_sentiment_extractor_nan_score_does_not_clamp_to_max_bullish(test_config, test_chunk):
+    """Regression test: NaN score/confidence from the LLM provider must
+    NOT silently clamp to 1.0 (max bullish) - Python's max()/min() don't
+    special-case NaN, so max(-1.0, min(1.0, nan)) previously evaluated to
+    1.0, turning a provider malfunction into a false maximum-bullish
+    signal. Must fail safe to neutral instead, like a JSON parse error."""
+    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        # json.dumps can't emit NaN in strict mode, but Python's json module
+        # (used by _parse_sentiment_json) accepts the bare NaN/Infinity
+        # tokens by default - exactly what a malformed provider response
+        # could contain.
+        mock_response.choices[0].message.content = (
+            '{"score": NaN, "confidence": 0.9, "key_positive": [], '
+            '"key_negative": [], "summary": "test"}'
+        )
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        MockOpenAI.return_value = mock_client
+
+        extractor = SentimentExtractor(test_config)
+        result = extractor.extract_sentiment(test_chunk)
+
+        assert isinstance(result, SentimentResult)
+        assert result.score == 0.0
+        assert result.confidence == 0.0
+        assert result.summary == "Invalid score from provider"
+
+
+def test_sentiment_extractor_infinity_score_does_not_clamp_silently(test_config, test_chunk):
+    """Same regression as the NaN case, for +Infinity - clamping
+    +Infinity to 1.0 happens to look "correct" numerically, but it still
+    masks a genuine provider malfunction as a legitimate strong-buy score
+    rather than flagging it."""
+    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = (
+            '{"score": Infinity, "confidence": 0.9, "key_positive": [], '
+            '"key_negative": [], "summary": "test"}'
+        )
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        MockOpenAI.return_value = mock_client
+
+        extractor = SentimentExtractor(test_config)
+        result = extractor.extract_sentiment(test_chunk)
+
+        assert result.score == 0.0
+        assert result.confidence == 0.0
+        assert result.summary == "Invalid score from provider"
+
+
+def test_sentiment_extractor_ordinary_out_of_range_score_still_clamps(test_config, test_chunk):
+    """Sanity check the fix didn't break legitimate clamping - an ordinary
+    (finite) out-of-range value like 1.5 must still clamp to 1.0, not be
+    treated as invalid."""
+    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "score": 1.5,
+            "confidence": 0.9,
+            "key_positive": [],
+            "key_negative": [],
+            "summary": "test"
+        })
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        MockOpenAI.return_value = mock_client
+
+        extractor = SentimentExtractor(test_config)
+        result = extractor.extract_sentiment(test_chunk)
+
+        assert result.score == 1.0
+        assert result.summary != "Invalid score from provider"
+
+
 def test_extract_ticker_sentiment_returns_most_recent(test_config, test_chunks):
     """Test that extract_ticker_sentiment returns at most 10 most recent chunks."""
     with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:

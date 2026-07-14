@@ -369,6 +369,61 @@ def test_ingest_batch_processes_all_tickers(client):
             assert data["total_latency_ms"] >= 0
 
 
+def test_cors_does_not_combine_wildcard_origin_with_credentials():
+    """Audit finding: allow_origins=["*"] + allow_credentials=True is an
+    invalid combination per the CORS spec (browsers reject it outright) and
+    was unnecessary here since auth is via X-API-Key headers, not cookies."""
+    from starlette.middleware.cors import CORSMiddleware as CORSMiddlewareClass
+
+    from alphasignal.api.app import app
+
+    cors_middleware = next(
+        m for m in app.user_middleware if m.cls is CORSMiddlewareClass
+    )
+
+    assert cors_middleware.kwargs["allow_origins"] == ["*"]
+    assert cors_middleware.kwargs["allow_credentials"] is False
+
+
+def test_ingest_endpoint_rejects_ticker_not_in_allowlist(client):
+    """Audit finding: /ingest/{ticker} had no allowlist check at all, unlike
+    /sentiment/{ticker} - an arbitrary ticker string could trigger real
+    EDGAR/news fetches and OpenAI embedding spend."""
+    with patch.object(
+        client.app.state.app_state.pipeline, "full_ingest"
+    ) as mock_ingest:
+        response = client.post("/ingest/NOTREAL")
+
+        assert response.status_code == 404
+        assert not mock_ingest.called
+
+
+def test_ingest_batch_rejects_ticker_not_in_allowlist_without_calling_pipeline(client):
+    """A ticker outside the allowlist in a batch request must be marked
+    failed and must never reach the ingestion pipeline (no EDGAR/news
+    fetch, no OpenAI spend); other tickers in the batch still proceed."""
+    with patch.object(
+        client.app.state.app_state.pipeline, "full_ingest"
+    ) as mock_ingest:
+        mock_ingest.return_value = IngestResult(
+            ticker="AAPL", chunks_created=5, chunks_embedded=5, chunks_stored=5
+        )
+
+        with patch.object(client.app.state.app_state.retriever, "build_bm25_index"):
+            response = client.post(
+                "/ingest/batch", json={"tickers": ["AAPL", "NOTREAL"]}
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        results_by_ticker = {r["ticker"]: r for r in data["results"]}
+        assert results_by_ticker["NOTREAL"]["status"] == "failed"
+        assert results_by_ticker["AAPL"]["status"] == "completed"
+        # Pipeline must only have been invoked for the allowlisted ticker.
+        assert mock_ingest.call_count == 1
+        assert mock_ingest.call_args.args[0] == "AAPL"
+
+
 def test_sentiment_endpoint_no_chunks_returns_empty_signals(client):
     """Test that sentiment endpoint returns empty signals when no chunks exist."""
     with patch.object(
@@ -383,6 +438,46 @@ def test_sentiment_endpoint_no_chunks_returns_empty_signals(client):
     assert data["ticker"] == "AAPL"
     assert data["signals"] == []
     assert data["latest_score"] is None
+    # Regression test: data_available must be explicitly False when no
+    # chunks exist for the ticker - distinct from a genuinely neutral
+    # score, so a client can't accidentally coalesce "never ingested" into
+    # 0.0 the way latest_score=None alone made easy to do (audit finding).
+    assert data["data_available"] is False
+
+
+def test_sentiment_endpoint_data_available_true_when_chunks_exist(client):
+    """data_available must be True (the default) whenever real data backs
+    the response - sanity check the flag isn't just always False."""
+    from alphasignal.ingestion import Chunk
+
+    mock_chunk = Chunk(
+        chunk_id="aapl_10k_test_0001",
+        ticker="AAPL",
+        text="Apple reported strong quarterly revenue growth.",
+        token_count=10,
+        doc_type="10-K",
+        source="SEC EDGAR",
+        section="MD&A",
+        date=date(2024, 1, 1),
+        url=None,
+        chunk_index=0,
+        total_chunks=1,
+    )
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=[mock_chunk],
+    ), patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=[],
+    ):
+        response = client.get("/sentiment/AAPL")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data_available"] is True
 
 
 def test_sentiment_endpoint_date_range_query(client):

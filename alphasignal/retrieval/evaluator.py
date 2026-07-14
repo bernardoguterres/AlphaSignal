@@ -101,7 +101,21 @@ class RetrievalEvaluator:
         hit_10_scores = []
 
         for item in self.golden_set:
-            query = item["query"]
+            # Audit bug: the real committed golden set
+            # (evaluation/golden_set.json) uses "question" as the field
+            # name, not "query" - evaluate() raised a raw KeyError against
+            # it and this was never caught by tests, which only exercised
+            # synthetic in-memory golden sets using "query" (audit finding,
+            # 2026-07-14). Accept either key; fail clearly if neither exists.
+            if "question" in item:
+                query = item["question"]
+            elif "query" in item:
+                query = item["query"]
+            else:
+                raise KeyError(
+                    f"Golden set entry {item.get('id', item)!r} has neither "
+                    f"'question' nor 'query' field"
+                )
             relevant_chunk_ids = set(item["relevant_chunk_ids"])
             ticker = item.get("ticker")
 

@@ -60,7 +60,13 @@ class VectorStore:
             self.chunk_ids = []
 
     def save(self):
-        """Persist index to disk."""
+        """Persist index to disk.
+
+        Writes both files to temp paths and renames them into place last,
+        so a crash/kill between the two writes can't leave index.faiss and
+        chunk_ids.json out of sync with each other (audit finding: the
+        previous two-step write was non-atomic).
+        """
         if self.index is None:
             logger.warning("No index to save")
             return
@@ -68,13 +74,18 @@ class VectorStore:
         try:
             index_file = self.index_path / "index.faiss"
             ids_file = self.index_path / "chunk_ids.json"
+            tmp_index_file = index_file.with_name(index_file.name + ".tmp")
+            tmp_ids_file = ids_file.with_name(ids_file.name + ".tmp")
 
             # Save FAISS index
-            faiss.write_index(self.index, str(index_file))
+            faiss.write_index(self.index, str(tmp_index_file))
 
             # Save chunk IDs
-            with open(ids_file, 'w') as f:
+            with open(tmp_ids_file, 'w') as f:
                 json.dump(self.chunk_ids, f)
+
+            tmp_index_file.replace(index_file)
+            tmp_ids_file.replace(ids_file)
 
             logger.info(f"Saved {len(self.chunk_ids)} vectors to disk")
         except Exception as e:
@@ -96,18 +107,41 @@ class VectorStore:
         if len(embeddings) != len(chunk_ids):
             raise ValueError("Number of embeddings must match number of chunk_ids")
 
+        # Dedup against chunk_ids already in the index (audit bug: add() had
+        # no dedup/upsert at all, so re-ingesting a chunk - a retry, or a
+        # re-run of the same ticker - duplicated it in FAISS while
+        # MetadataStore.add_chunks() correctly deduped via session.merge(),
+        # producing permanent drift between the vector index and its
+        # metadata; confirmed by execution). FAISS's IndexFlatIP has no
+        # native upsert-by-id, and chunk_id is content-derived (deterministic
+        # MD5-based), so an already-present chunk_id means identical content
+        # was already embedded and indexed - skipping it is equivalent to an
+        # upsert here, not a data-loss risk.
+        existing_ids = set(self.chunk_ids)
+        keep_mask = [cid not in existing_ids for cid in chunk_ids]
+        n_duplicates = len(chunk_ids) - sum(keep_mask)
+        if n_duplicates:
+            logger.info(
+                f"Skipping {n_duplicates} chunk(s) already present in the vector index"
+            )
+        if not any(keep_mask):
+            return
+
+        new_embeddings = embeddings[np.array(keep_mask, dtype=bool)]
+        new_chunk_ids = [cid for cid, keep in zip(chunk_ids, keep_mask) if keep]
+
         # Normalize embeddings for cosine similarity
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-        normalized = embeddings / (norms + 1e-8)  # Avoid division by zero
+        norms = np.linalg.norm(new_embeddings, axis=1, keepdims=True)
+        normalized = new_embeddings / (norms + 1e-8)  # Avoid division by zero
 
         # Add to index
         self.index.add(normalized.astype(np.float32))
-        self.chunk_ids.extend(chunk_ids)
+        self.chunk_ids.extend(new_chunk_ids)
 
         # Save after adding
         self.save()
 
-        logger.info(f"Added {len(chunk_ids)} vectors to index")
+        logger.info(f"Added {len(new_chunk_ids)} vectors to index")
 
     def search(
         self,

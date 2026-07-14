@@ -167,6 +167,15 @@ class SemanticChunker:
             # - We already have chunks and this is just leftover
             if final_tokens >= self.min_tokens or len(chunks) == 0:
                 chunks.append(final_chunk_text)
+            else:
+                # Audit bug: a genuine short trailing sentence used to be
+                # silently discarded here once a full chunk already
+                # existed - confirmed by execution with a real closing
+                # sentence that never appeared in any output chunk. Merge
+                # it into the previous chunk instead of losing the source
+                # text entirely (may push that chunk slightly past
+                # max_tokens, which is preferable to dropping real content).
+                chunks[-1] = f"{chunks[-1]} {final_chunk_text}"
 
         return chunks
 

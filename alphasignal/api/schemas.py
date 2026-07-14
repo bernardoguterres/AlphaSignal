@@ -69,6 +69,17 @@ class SentimentResponse(BaseModel):
     signals: list[SentimentSignal]
     latest_score: float | None = None
     latency_ms: int
+    # Explicit, hard-to-miss "no data yet" signal (audit finding, 2026-07-14):
+    # latest_score=None was already structurally correct for an empty
+    # corpus, but nothing made this distinction hard to accidentally
+    # collapse - a consuming client that does `score = latest_score or 0.0`
+    # (or any similar null-coalescing) silently treats "never ingested" the
+    # same as "genuinely neutral". data_available makes that distinction
+    # explicit and impossible to miss in the schema itself. NOTE: this is
+    # additive only - AlphaLive's client does not read this field yet and
+    # needs a separate, cross-repo follow-up to actually consume it; until
+    # then this field exists but doesn't change AlphaLive's behavior.
+    data_available: bool = True
 
 
 class IngestResponse(BaseModel):
