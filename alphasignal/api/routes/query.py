@@ -72,7 +72,7 @@ def query(
                 citations=[],
                 latency_ms=latency_ms,
                 retrieval_scores=[],
-                model_used=config.get("generation", {}).get("model", "gpt-4o-mini"),
+                model_used=config.get("generation", {}).get("model", "gpt-5.6-luna"),
             )
 
         # Step 2: Rerank
@@ -124,7 +124,7 @@ def query(
             citations=citations,
             latency_ms=latency_ms,
             retrieval_scores=retrieval_scores,
-            model_used=config.get("generation", {}).get("model", "gpt-4o-mini"),
+            model_used=config.get("generation", {}).get("model", "gpt-5.6-luna"),
         )
 
     except Exception as e:

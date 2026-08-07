@@ -41,7 +41,7 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
         self.client = OpenAI()
 
         # Store generation parameters
-        self.model = generation_config.get("model", "gpt-4o-mini")
+        self.model = generation_config.get("model", "gpt-5.6-luna")
         self.cache_hours = generation_config.get("sentiment_cache_hours", 24)
 
         # Cache: chunk_id -> (SentimentResult, timestamp)

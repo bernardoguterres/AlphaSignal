@@ -29,7 +29,7 @@ class RAGGenerator:
         self.client = OpenAI()
 
         # Store generation parameters
-        self.model = generation_config.get("model", "gpt-4o-mini")
+        self.model = generation_config.get("model", "gpt-5.6-luna")
         self.max_tokens = generation_config.get("max_tokens", 1000)
         self.temperature = generation_config.get("temperature", 0.1)
 
