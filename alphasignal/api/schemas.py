@@ -10,14 +10,19 @@ class QueryRequest(BaseModel):
 
     Attributes:
         query: Natural-language question about a company or filing.
-        ticker_filter: Optional list of tickers to restrict retrieval to.
+        ticker_filter: Optional single ticker to restrict retrieval to. Was
+            previously typed as list[str], implying multi-ticker filtering,
+            but the whole retrieval stack (HybridRetriever, VectorStore) only
+            ever supports one ticker per query - the route silently used
+            only the first list element and dropped the rest. Typed as a
+            single str now to match what's actually supported.
         date_from: Earliest document date to include in retrieval.
         date_to: Latest document date to include in retrieval.
         top_k: Number of results to return (1–20, default 5).
     """
 
     query: str = Field(..., min_length=5, max_length=500)
-    ticker_filter: list[str] | None = None
+    ticker_filter: str | None = None
     date_from: date | None = None
     date_to: date | None = None
     top_k: int = Field(default=5, ge=1, le=20)

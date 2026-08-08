@@ -51,10 +51,9 @@ def query(
         logger.info(f"Processing query: '{request.query[:50]}...'")
 
         # Step 1: Retrieve candidates
-        ticker_filter = request.ticker_filter[0] if request.ticker_filter else None
         retrieved_chunks = retriever.retrieve(
             query=request.query,
-            ticker=ticker_filter,
+            ticker=request.ticker_filter,
             date_from=request.date_from,
             date_to=request.date_to,
             top_k=20,  # Get more candidates for reranking

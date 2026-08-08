@@ -202,7 +202,7 @@ def test_query_endpoint_returns_200(client, mock_retrieved_chunks):
                     "/query/",
                     json={
                         "query": "What is Apple revenue?",
-                        "ticker_filter": ["AAPL"],
+                        "ticker_filter": "AAPL",
                         "top_k": 5,
                     },
                 )
