@@ -10,6 +10,7 @@ from alphasignal.api.dependencies import (
     get_metrics_collector,
     get_pipeline,
     get_retriever,
+    validate_ticker_in_config,
 )
 from alphasignal.api.schemas import (
     BatchIngestRequest,
@@ -148,16 +149,10 @@ def ingest(
     """
     start_time = time.time()
 
-    ticker = ticker.upper()
-
     # Audit finding: no ticker allowlist check existed here, unlike
     # /sentiment/{ticker} - an arbitrary ticker string could trigger real
     # EDGAR/news fetches and OpenAI embedding spend (2026-07-14).
-    valid_tickers = config.get("tickers", [])
-    if ticker not in valid_tickers:
-        raise HTTPException(
-            status_code=404, detail=f"Ticker {ticker} not found in knowledge base"
-        )
+    ticker = validate_ticker_in_config(ticker, config)
 
     try:
         logger.info(f"Starting ingestion for {ticker}")

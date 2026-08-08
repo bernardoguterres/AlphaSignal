@@ -15,6 +15,32 @@ from alphasignal.retrieval.retriever import HybridRetriever
 from alphasignal.store.metadata_store import MetadataStore
 
 
+def validate_ticker_in_config(ticker: str, config: dict) -> str:
+    """Normalize a ticker and confirm it's in the configured allowlist.
+
+    Shared by every route that takes a ticker in the path - previously
+    duplicated identically across sentiment.py's two endpoints and
+    ingest.py's single-ticker endpoint. Raises the same 404 all three used.
+
+    Args:
+        ticker: Raw ticker string from the request
+        config: App config dict (from get_config)
+
+    Returns:
+        The uppercased ticker
+
+    Raises:
+        HTTPException: 404 if the ticker isn't in config's tickers list
+    """
+    ticker = ticker.upper()
+    valid_tickers = config.get("tickers", [])
+    if ticker not in valid_tickers:
+        raise HTTPException(
+            status_code=404, detail=f"Ticker {ticker} not found in knowledge base"
+        )
+    return ticker
+
+
 def get_app_state(request: Request) -> AppState:
     """Get application state from request.
 

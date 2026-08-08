@@ -12,6 +12,7 @@ from alphasignal.api.dependencies import (
     get_metadata_store,
     get_metrics_collector,
     get_sentiment_extractor,
+    validate_ticker_in_config,
 )
 from alphasignal.api.schemas import SentimentResponse
 from alphasignal.generation.sentiment import SentimentExtractor
@@ -48,19 +49,11 @@ def get_sentiment(
     """
     start_time = time.time()
 
-    # Validate and normalize ticker
-    ticker = ticker.upper()
-
-    # Validate ticker length
+    # Validate ticker length before checking the allowlist (distinct 422 vs 404)
     if not (1 <= len(ticker) <= 5):
         raise HTTPException(status_code=422, detail="Ticker must be 1-5 characters")
 
-    # Validate ticker is in config
-    valid_tickers = config.get("tickers", [])
-    if ticker not in valid_tickers:
-        raise HTTPException(
-            status_code=404, detail=f"Ticker {ticker} not found in knowledge base"
-        )
+    ticker = validate_ticker_in_config(ticker, config)
 
     logger.info(f"Getting sentiment for {ticker}")
 
@@ -138,15 +131,7 @@ def get_sentiment_summary(
     """
     start_time = time.time()
 
-    # Validate and normalize ticker
-    ticker = ticker.upper()
-
-    # Validate ticker is in config
-    valid_tickers = config.get("tickers", [])
-    if ticker not in valid_tickers:
-        raise HTTPException(
-            status_code=404, detail=f"Ticker {ticker} not found in knowledge base"
-        )
+    ticker = validate_ticker_in_config(ticker, config)
 
     logger.info(f"Getting sentiment summary for {ticker}")
 
