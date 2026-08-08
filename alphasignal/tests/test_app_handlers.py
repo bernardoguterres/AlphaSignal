@@ -5,23 +5,7 @@ import json
 import pytest
 from unittest.mock import MagicMock
 
-from alphasignal.api.app import alphasignal_error_handler, general_exception_handler
-from alphasignal.api.exceptions import DatabaseError
-
-
-@pytest.mark.asyncio
-async def test_alphasignal_error_handler_returns_500_with_error_body():
-    """Test that AlphaSignalError subclasses are converted to a structured 500 response."""
-    request = MagicMock()
-    exc = DatabaseError("connection lost", detail="sqlite locked")
-
-    response = await alphasignal_error_handler(request, exc)
-
-    assert response.status_code == 500
-    body = json.loads(response.body)
-    assert body["error"] == "connection lost"
-    assert body["code"] == "DB_ERROR"
-    assert body["detail"] == "sqlite locked"
+from alphasignal.api.app import general_exception_handler
 
 
 @pytest.mark.asyncio

@@ -17,7 +17,6 @@ from alphasignal.api.routes import health, query, sentiment, ingest, metrics
 from alphasignal.api.dependencies import require_api_key
 from alphasignal.api.schemas import ErrorResponse
 from alphasignal.api.state import AppState
-from alphasignal.api.exceptions import AlphaSignalError
 from alphasignal.generation.generator import RAGGenerator
 from alphasignal.generation.sentiment import SentimentExtractor
 from alphasignal.ingestion.pipeline import IngestionPipeline
@@ -196,17 +195,6 @@ async def log_requests(request: Request, call_next):
     )
 
     return response
-
-
-# Exception handler for AlphaSignal errors
-@app.exception_handler(AlphaSignalError)
-async def alphasignal_error_handler(request: Request, exc: AlphaSignalError):
-    """Handle AlphaSignal custom errors and return ErrorResponse."""
-    logger.error(f"AlphaSignal error [{exc.code}]: {exc.message}", exc_info=True)
-
-    error_response = ErrorResponse(error=exc.message, code=exc.code, detail=exc.detail)
-
-    return JSONResponse(status_code=500, content=error_response.model_dump())
 
 
 # Exception handler for unhandled errors
