@@ -331,3 +331,62 @@ class IngestionPipeline:
             chunks_embedded=len(embeddings),
             chunks_stored=len(chunks),
         )
+
+    def ingest_historical_filings(
+        self,
+        ticker: str,
+        after: str,
+        before: str,
+        filing_types: list[str] | None = None,
+    ) -> IngestResult:
+        """Backfill SEC filings for an explicit historical window (e.g. a
+        pre-COVID period like 2015-01-01 to 2019-12-31).
+
+        EDGAR-only, deliberately - unlike full_ingest(), this does not touch
+        news. RSS feeds (NewsIngester's only source) have no historical
+        query capability at all; calling ingest_ticker_news() here would
+        just refetch today's feed again, redundant with a regular
+        full_ingest() run and not actually historical.
+
+        Safe to call repeatedly / on overlapping windows: the embedding
+        cache, MetadataStore (upsert via session.merge()), and VectorStore
+        (explicit chunk_id dedup) are all idempotent on the content-derived
+        chunk_id, so re-processing an already-ingested filing costs nothing
+        extra - no wasted OpenAI calls, no duplicate vectors.
+
+        Args:
+            ticker: Stock ticker symbol
+            after: Absolute start date (YYYY-MM-DD)
+            before: Absolute end date (YYYY-MM-DD)
+            filing_types: Filing types to fetch. Defaults to config value.
+
+        Returns:
+            IngestResult with counts
+        """
+        logger.info(
+            f"Starting historical filings backfill for {ticker}: {after} to {before}"
+        )
+
+        edgar_config = self.config.get("ingestion", {}).get("edgar", {})
+        if filing_types is None:
+            filing_types = edgar_config.get("filing_types", ["10-K", "10-Q"])
+
+        raw_docs = self.edgar_ingester.fetch_filings(
+            ticker=ticker, filing_types=filing_types, after=after, before=before
+        )
+
+        chunks = self.chunk_documents(raw_docs)
+        embeddings = self.embedder.embed_chunks(chunks)
+        self.store_chunks(chunks, embeddings)
+
+        logger.info(
+            f"Completed historical filings backfill for {ticker}: "
+            f"{len(chunks)} chunks, {len(embeddings)} embeddings"
+        )
+
+        return IngestResult(
+            ticker=ticker,
+            chunks_created=len(chunks),
+            chunks_embedded=len(embeddings),
+            chunks_stored=len(chunks),
+        )

@@ -40,31 +40,59 @@ class EDGARIngester:
         )
 
     def fetch_filings(
-        self, ticker: str, filing_types: list[str], years_back: int
+        self,
+        ticker: str,
+        filing_types: list[str],
+        years_back: int | None = None,
+        after: str | None = None,
+        before: str | None = None,
     ) -> list[RawDocument]:
         """Download SEC filings for a ticker.
+
+        Two mutually-usable modes: the default relative window (years_back,
+        computed from today - what every regular ingestion run uses), or an
+        explicit absolute window (after/before, e.g. "2015-01-01"/"2019-12-31"
+        for a historical backfill). SEC EDGAR is a permanent public archive
+        back to the 1990s and the underlying sec-edgar-downloader library
+        already supports both bounds - after/before just wire that through,
+        nothing about EDGAR itself limits how far back this can go.
 
         Args:
             ticker: Stock ticker symbol
             filing_types: List of filing types (e.g., ["10-K", "10-Q"])
-            years_back: Number of years of historical filings to fetch
+            years_back: Number of years back from today to fetch. Ignored if
+                `after` is given.
+            after: Explicit absolute start date (YYYY-MM-DD). Overrides
+                years_back when set.
+            before: Explicit absolute end date (YYYY-MM-DD). Open-ended
+                (fetches up to today) if omitted.
 
         Returns:
             List of RawDocument objects
         """
+        if after is None and years_back is None:
+            raise ValueError("fetch_filings requires either years_back or after")
+        resolved_after = after or f"{datetime.now().year - years_back}-01-01"
+
         raw_documents = []
 
         for filing_type in filing_types:
             try:
+                window_desc = (
+                    f"{resolved_after} to {before}"
+                    if before
+                    else f"{resolved_after} to present"
+                )
                 logger.info(
-                    f"Downloading {filing_type} filings for {ticker}, {years_back} years back"
+                    f"Downloading {filing_type} filings for {ticker}, {window_desc}"
                 )
 
                 # Download filings
                 self.downloader.get(
                     filing_type,
                     ticker,
-                    after=f"{datetime.now().year - years_back}-01-01",
+                    after=resolved_after,
+                    before=before,
                     download_details=True,
                 )
 
