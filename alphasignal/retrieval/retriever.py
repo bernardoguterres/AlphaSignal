@@ -22,7 +22,7 @@ class HybridRetriever:
         config: dict,
         embedder: Embedder,
         vector_store: VectorStore,
-        metadata_store: MetadataStore
+        metadata_store: MetadataStore,
     ):
         """Initialize hybrid retriever.
 
@@ -88,7 +88,7 @@ class HybridRetriever:
         k: int,
         ticker_filter: str | None = None,
         date_from: date | None = None,
-        date_to: date | None = None
+        date_to: date | None = None,
     ) -> list[tuple[str, float]]:
         """Perform dense vector search using FAISS.
 
@@ -108,15 +108,15 @@ class HybridRetriever:
             # Query metadata store for matching chunks
             if ticker_filter and not date_from and not date_to:
                 # Just ticker filter
-                matching_chunks = self.metadata_store.get_chunks_by_ticker(ticker_filter)
+                matching_chunks = self.metadata_store.get_chunks_by_ticker(
+                    ticker_filter
+                )
             elif date_from or date_to:
                 # Date filter (with optional ticker)
                 start_date = date_from if date_from else date.min
                 end_date = date_to if date_to else date.max
                 matching_chunks = self.metadata_store.get_chunks_by_date_range(
-                    start=start_date,
-                    end=end_date,
-                    ticker=ticker_filter
+                    start=start_date, end=end_date, ticker=ticker_filter
                 )
             else:
                 matching_chunks = []
@@ -128,11 +128,7 @@ class HybridRetriever:
                 return []
 
         # Search vector store
-        results = self.vector_store.search(
-            query_embedding,
-            k=k,
-            filter_ids=filter_ids
-        )
+        results = self.vector_store.search(query_embedding, k=k, filter_ids=filter_ids)
 
         return results
 
@@ -142,7 +138,7 @@ class HybridRetriever:
         k: int,
         ticker_filter: str | None = None,
         date_from: date | None = None,
-        date_to: date | None = None
+        date_to: date | None = None,
     ) -> list[tuple[str, float]]:
         """Perform sparse BM25 search.
 
@@ -197,7 +193,7 @@ class HybridRetriever:
     def _merge_results(
         self,
         dense_results: list[tuple[str, float]],
-        sparse_results: list[tuple[str, float]]
+        sparse_results: list[tuple[str, float]],
     ) -> list[tuple[str, float, float, float]]:
         """Merge dense and sparse results with weighted scoring.
 
@@ -208,6 +204,7 @@ class HybridRetriever:
         Returns:
             List of (chunk_id, dense_score, sparse_score, hybrid_score) tuples
         """
+
         # Normalize scores to [0, 1] range
         def normalize_scores(results: list[tuple[str, float]]) -> dict[str, float]:
             """Min-max normalise retrieval scores to the [0, 1] range.
@@ -249,8 +246,7 @@ class HybridRetriever:
             dense_score = dense_normalized.get(chunk_id, 0.0)
             sparse_score = sparse_normalized.get(chunk_id, 0.0)
             hybrid_score = (
-                self.dense_weight * dense_score +
-                self.bm25_weight * sparse_score
+                self.dense_weight * dense_score + self.bm25_weight * sparse_score
             )
             merged.append((chunk_id, dense_score, sparse_score, hybrid_score))
 
@@ -264,7 +260,7 @@ class HybridRetriever:
         ticker: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
-        top_k: int | None = None
+        top_k: int | None = None,
     ) -> list[RetrievedChunk]:
         """Retrieve relevant chunks using hybrid search.
 
@@ -292,7 +288,7 @@ class HybridRetriever:
             k=self.dense_candidates,
             ticker_filter=ticker,
             date_from=date_from,
-            date_to=date_to
+            date_to=date_to,
         )
         logger.debug(f"Dense search returned {len(dense_results)} results")
 
@@ -302,7 +298,7 @@ class HybridRetriever:
             k=self.sparse_candidates,
             ticker_filter=ticker,
             date_from=date_from,
-            date_to=date_to
+            date_to=date_to,
         )
         logger.debug(f"Sparse search returned {len(sparse_results)} results")
 
@@ -334,7 +330,7 @@ class HybridRetriever:
                 dense_score=dense_score,
                 sparse_score=sparse_score,
                 hybrid_score=hybrid_score,
-                final_score=None  # Will be set by reranker
+                final_score=None,  # Will be set by reranker
             )
             retrieved_chunks.append(retrieved_chunk)
 

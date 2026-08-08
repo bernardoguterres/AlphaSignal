@@ -46,7 +46,7 @@ class VectorStore:
                 self.index = faiss.read_index(str(index_file))
 
                 # Load chunk IDs
-                with open(ids_file, 'r') as f:
+                with open(ids_file, "r") as f:
                     self.chunk_ids = json.load(f)
 
                 logger.info(f"Loaded {len(self.chunk_ids)} vectors from disk")
@@ -81,7 +81,7 @@ class VectorStore:
             faiss.write_index(self.index, str(tmp_index_file))
 
             # Save chunk IDs
-            with open(tmp_ids_file, 'w') as f:
+            with open(tmp_ids_file, "w") as f:
                 json.dump(self.chunk_ids, f)
 
             tmp_index_file.replace(index_file)
@@ -147,7 +147,7 @@ class VectorStore:
         self,
         query_embedding: np.ndarray,
         k: int = 20,
-        filter_ids: set[str] | None = None
+        filter_ids: set[str] | None = None,
     ) -> list[tuple[str, float]]:
         """Search for similar chunks.
 

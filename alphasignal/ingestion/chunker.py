@@ -59,13 +59,29 @@ class SemanticChunker:
 
         # Common abbreviations to protect
         abbreviations = [
-            "U.S.", "U.K.", "E.U.", "e.g.", "i.e.", "etc.",
-            "Dr.", "Mr.", "Mrs.", "Ms.", "Jr.", "Sr.",
-            "Inc.", "Corp.", "Ltd.", "Co.", "LLC"
+            "U.S.",
+            "U.K.",
+            "E.U.",
+            "e.g.",
+            "i.e.",
+            "etc.",
+            "Dr.",
+            "Mr.",
+            "Mrs.",
+            "Ms.",
+            "Jr.",
+            "Sr.",
+            "Inc.",
+            "Corp.",
+            "Ltd.",
+            "Co.",
+            "LLC",
         ]
 
         # Build placeholder map and a single regex for each direction
-        abbr_to_placeholder = {abbr: f"__ABBR{i}__" for i, abbr in enumerate(abbreviations)}
+        abbr_to_placeholder = {
+            abbr: f"__ABBR{i}__" for i, abbr in enumerate(abbreviations)
+        }
         placeholder_to_abbr = {v: k for k, v in abbr_to_placeholder.items()}
         protect_re = re.compile("|".join(re.escape(a) for a in abbreviations))
         restore_re = re.compile("|".join(re.escape(p) for p in placeholder_to_abbr))
@@ -74,12 +90,14 @@ class SemanticChunker:
 
         # Split on sentence-ending punctuation followed by space and capital letter
         # or followed by newline
-        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])\n+', protected_text)
+        sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])\n+", protected_text)
 
         # Restore abbreviations with a single regex sub per sentence
         restored_sentences = []
         for sentence in sentences:
-            sentence = restore_re.sub(lambda m: placeholder_to_abbr[m.group()], sentence).strip()
+            sentence = restore_re.sub(
+                lambda m: placeholder_to_abbr[m.group()], sentence
+            ).strip()
             if len(sentence) > 10:
                 restored_sentences.append(sentence)
 
@@ -123,7 +141,7 @@ class SemanticChunker:
                 # Hard split the long sentence
                 encoded = self.encoder.encode(sentence)
                 for start_idx in range(0, len(encoded), self.max_tokens):
-                    chunk_tokens = encoded[start_idx:start_idx + self.max_tokens]
+                    chunk_tokens = encoded[start_idx : start_idx + self.max_tokens]
                     chunk_text = self.encoder.decode(chunk_tokens)
                     chunks.append(chunk_text)
 
@@ -131,7 +149,10 @@ class SemanticChunker:
                 continue
 
             # Check if adding this sentence would exceed max_tokens
-            if current_tokens + sentence_tokens > self.max_tokens and current_chunk_sentences:
+            if (
+                current_tokens + sentence_tokens > self.max_tokens
+                and current_chunk_sentences
+            ):
                 # Save current chunk
                 chunks.append(" ".join(current_chunk_sentences))
 
@@ -219,7 +240,7 @@ class SemanticChunker:
                     date=doc.filing_date,
                     url=None,
                     chunk_index=chunk_index,
-                    total_chunks=0  # Will be updated after processing all sections
+                    total_chunks=0,  # Will be updated after processing all sections
                 )
 
                 all_chunks.append(chunk)
@@ -264,7 +285,7 @@ class SemanticChunker:
                 date=article.published_date,
                 url=article.url,
                 chunk_index=0,
-                total_chunks=1
+                total_chunks=1,
             )
 
             return [chunk]
@@ -287,10 +308,12 @@ class SemanticChunker:
                 date=article.published_date,
                 url=article.url,
                 chunk_index=i,
-                total_chunks=len(text_chunks)
+                total_chunks=len(text_chunks),
             )
 
             chunks.append(chunk)
 
-        logger.info(f"Created {len(chunks)} chunks from news article for {article.ticker}")
+        logger.info(
+            f"Created {len(chunks)} chunks from news article for {article.ticker}"
+        )
         return chunks

@@ -75,7 +75,7 @@ class MetadataStore:
                     date=chunk.date,
                     url=chunk.url,
                     chunk_index=chunk.chunk_index,
-                    total_chunks=chunk.total_chunks
+                    total_chunks=chunk.total_chunks,
                 )
 
                 # Merge (insert or update on conflict)
@@ -99,7 +99,7 @@ class MetadataStore:
             date=record.date,
             url=record.url,
             chunk_index=record.chunk_index,
-            total_chunks=record.total_chunks
+            total_chunks=record.total_chunks,
         )
 
     def get_chunk(self, chunk_id: str) -> Chunk | None:
@@ -120,9 +120,7 @@ class MetadataStore:
             return self._to_chunk(record)
 
     def get_chunks_by_ticker(
-        self,
-        ticker: str,
-        doc_type: str | None = None
+        self, ticker: str, doc_type: str | None = None
     ) -> list[Chunk]:
         """Get all chunks for a ticker.
 
@@ -144,10 +142,7 @@ class MetadataStore:
             return [self._to_chunk(r) for r in records]
 
     def get_chunks_by_date_range(
-        self,
-        start: date_type,
-        end: date_type,
-        ticker: str | None = None
+        self, start: date_type, end: date_type, ticker: str | None = None
     ) -> list[Chunk]:
         """Get chunks within a date range.
 
@@ -161,8 +156,7 @@ class MetadataStore:
         """
         with Session(self.engine) as session:
             statement = select(ChunkRecord).where(
-                ChunkRecord.date >= start,
-                ChunkRecord.date <= end
+                ChunkRecord.date >= start, ChunkRecord.date <= end
             )
 
             if ticker:

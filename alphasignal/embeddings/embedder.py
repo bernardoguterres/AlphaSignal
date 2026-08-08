@@ -51,14 +51,13 @@ class Embedder:
 
         # Process in batches
         for i in range(0, len(texts), self.batch_size):
-            batch = texts[i:i + self.batch_size]
+            batch = texts[i : i + self.batch_size]
 
             # Retry logic with exponential backoff
             for attempt in range(self.max_retries):
                 try:
                     response = self.client.embeddings.create(
-                        model=self.model,
-                        input=batch
+                        model=self.model, input=batch
                     )
 
                     # Extract embeddings
@@ -69,14 +68,16 @@ class Embedder:
                 except Exception as e:
                     if attempt < self.max_retries - 1:
                         # Exponential backoff
-                        delay = self.retry_delay * (2 ** attempt)
+                        delay = self.retry_delay * (2**attempt)
                         logger.warning(
                             f"Embedding API error (attempt {attempt + 1}/{self.max_retries}): {e}. "
                             f"Retrying in {delay}s..."
                         )
                         time.sleep(delay)
                     else:
-                        logger.error(f"Failed to embed batch after {self.max_retries} attempts: {e}")
+                        logger.error(
+                            f"Failed to embed batch after {self.max_retries} attempts: {e}"
+                        )
                         raise
 
         return np.array(all_embeddings, dtype=np.float32)

@@ -82,7 +82,10 @@ class NewsIngester:
                     article.source = source_name
 
                     # Filter by age
-                    if datetime.combine(article.published_date, datetime.min.time()) < cutoff_date:
+                    if (
+                        datetime.combine(article.published_date, datetime.min.time())
+                        < cutoff_date
+                    ):
                         continue
 
                     # Filter by relevance
@@ -130,7 +133,9 @@ class NewsIngester:
             # Extract published date
             published = entry.get("published_parsed") or entry.get("updated_parsed")
             if published:
-                published_date = date(published.tm_year, published.tm_mon, published.tm_mday)
+                published_date = date(
+                    published.tm_year, published.tm_mon, published.tm_mday
+                )
             else:
                 published_date = date.today()
 
@@ -161,7 +166,7 @@ class NewsIngester:
                 content=content,
                 published_date=published_date,
                 url=link,
-                source=""  # Will be set by caller
+                source="",  # Will be set by caller
             )
 
         except Exception as e:

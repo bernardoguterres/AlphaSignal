@@ -38,7 +38,7 @@ class EmbeddingCache:
         if self._vectors_path.exists() and self._ids_path.exists():
             try:
                 vectors = np.load(self._vectors_path, allow_pickle=False)
-                with open(self._ids_path, 'r') as f:
+                with open(self._ids_path, "r") as f:
                     chunk_ids = json.load(f)
 
                 if len(chunk_ids) != len(vectors):
@@ -119,9 +119,9 @@ class EmbeddingCache:
             )
             tmp_ids_path = self._ids_path.with_name(self._ids_path.name + ".tmp")
 
-            with open(tmp_vectors_path, 'wb') as f:
+            with open(tmp_vectors_path, "wb") as f:
                 np.save(f, vectors, allow_pickle=False)
-            with open(tmp_ids_path, 'w') as f:
+            with open(tmp_ids_path, "w") as f:
                 json.dump(chunk_ids, f)
 
             tmp_vectors_path.replace(self._vectors_path)

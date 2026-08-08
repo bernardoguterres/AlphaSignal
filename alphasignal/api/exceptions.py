@@ -13,11 +13,7 @@ class AlphaSignalError(Exception):
     """
 
     def __init__(
-        self,
-        message: str,
-        code: str,
-        detail: str | None = None,
-        **kwargs: Any
+        self, message: str, code: str, detail: str | None = None, **kwargs: Any
     ):
         """Initialize AlphaSignalError.
 
@@ -55,7 +51,9 @@ class GenerationError(AlphaSignalError):
 class IndexNotLoadedError(AlphaSignalError):
     """Error when FAISS index is not loaded."""
 
-    def __init__(self, message: str = "FAISS index not loaded", detail: str | None = None):
+    def __init__(
+        self, message: str = "FAISS index not loaded", detail: str | None = None
+    ):
         """Initialize IndexNotLoadedError.
 
         Args:
@@ -90,8 +88,5 @@ class IngestionError(AlphaSignalError):
             detail: Optional error details
         """
         super().__init__(
-            message=message,
-            code="INGESTION_ERROR",
-            detail=detail,
-            source=source
+            message=message, code="INGESTION_ERROR", detail=detail, source=source
         )

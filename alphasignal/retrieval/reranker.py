@@ -23,10 +23,7 @@ class CrossEncoderReranker:
         logger.info("Cross-encoder model loaded successfully")
 
     def rerank(
-        self,
-        query: str,
-        chunks: list[RetrievedChunk],
-        top_k: int | None = None
+        self, query: str, chunks: list[RetrievedChunk], top_k: int | None = None
     ) -> list[RetrievedChunk]:
         """Rerank chunks by computing cross-encoder relevance scores.
 
