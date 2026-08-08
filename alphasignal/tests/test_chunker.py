@@ -45,8 +45,9 @@ def test_chunk_text_respects_max_tokens(chunker):
     assert len(chunks) > 0, "Should produce at least one chunk"
     for chunk_text in chunks:
         token_count = chunker.count_tokens(chunk_text)
-        assert token_count <= chunker.max_tokens, \
-            f"Chunk has {token_count} tokens, exceeds max {chunker.max_tokens}"
+        assert (
+            token_count <= chunker.max_tokens
+        ), f"Chunk has {token_count} tokens, exceeds max {chunker.max_tokens}"
 
 
 def test_chunk_text_respects_min_tokens(chunker):
@@ -68,8 +69,9 @@ def test_chunk_text_respects_min_tokens(chunker):
         token_count = chunker.count_tokens(chunk_text)
         # All chunks except the last should meet min_tokens
         if i < len(chunks) - 1:
-            assert token_count >= chunker.min_tokens, \
-                f"Non-final chunk {i} has {token_count} tokens, below min {chunker.min_tokens}"
+            assert (
+                token_count >= chunker.min_tokens
+            ), f"Non-final chunk {i} has {token_count} tokens, below min {chunker.min_tokens}"
 
 
 def test_chunk_text_overlap_preserves_context(chunker):
@@ -85,7 +87,7 @@ def test_chunk_text_overlap_preserves_context(chunker):
         "The seventh sentence assesses product development initiatives and innovation pipeline progress.",
         "The eighth sentence considers regulatory compliance requirements and their impact on business operations.",
         "The ninth sentence investigates supply chain optimization efforts to reduce costs and improve reliability.",
-        "The tenth sentence concludes with forward-looking strategic guidance for stakeholders and investors."
+        "The tenth sentence concludes with forward-looking strategic guidance for stakeholders and investors.",
     ]
     text = " ".join(sentences)
 
@@ -109,8 +111,9 @@ def test_chunk_text_overlap_preserves_context(chunker):
         common_words = current_words & next_words
 
         # Should have some overlap
-        assert len(common_words) > 0, \
-            f"Chunks {i} and {i+1} should share some content from overlap"
+        assert (
+            len(common_words) > 0
+        ), f"Chunks {i} and {i+1} should share some content from overlap"
 
 
 def test_chunk_text_does_not_split_sentences(chunker):
@@ -128,12 +131,16 @@ def test_chunk_text_does_not_split_sentences(chunker):
     # Each chunk should start and end at sentence boundaries
     for chunk_text in chunks:
         # Should start with capital letter or digit (sentence start)
-        assert chunk_text[0].isupper() or chunk_text[0].isdigit(), \
-            "Chunk should start at sentence boundary"
+        assert (
+            chunk_text[0].isupper() or chunk_text[0].isdigit()
+        ), "Chunk should start at sentence boundary"
 
         # Should end with sentence-ending punctuation
-        assert chunk_text.rstrip()[-1] in ['.', '!', '?'], \
-            "Chunk should end at sentence boundary"
+        assert chunk_text.rstrip()[-1] in [
+            ".",
+            "!",
+            "?",
+        ], "Chunk should end at sentence boundary"
 
 
 def test_split_sentences_handles_abbreviations(chunker):
@@ -143,7 +150,9 @@ def test_split_sentences_handles_abbreviations(chunker):
     sentences = chunker.split_into_sentences(text)
 
     # Should split into exactly 2 sentences, not more
-    assert len(sentences) == 2, f"Expected 2 sentences, got {len(sentences)}: {sentences}"
+    assert (
+        len(sentences) == 2
+    ), f"Expected 2 sentences, got {len(sentences)}: {sentences}"
     assert "U.S." in sentences[0], "First sentence should contain 'U.S.'"
     assert "Analysts" in sentences[1], "Second sentence should start with 'Analysts'"
 
@@ -162,7 +171,7 @@ def test_chunk_document_assigns_correct_metadata(chunker):
             "item_7": "Management discusses financial performance and outlook. " * 20,
         },
         file_path="/path/to/filing",
-        accession_number="0001234567-24-000001"
+        accession_number="0001234567-24-000001",
     )
 
     chunks = chunker.chunk_document(doc)
@@ -184,7 +193,9 @@ def test_chunk_document_assigns_correct_metadata(chunker):
 
     # Verify chunk_index is sequential
     for i, chunk in enumerate(chunks):
-        assert chunk.chunk_index == i, f"Chunk {i} has incorrect index {chunk.chunk_index}"
+        assert (
+            chunk.chunk_index == i
+        ), f"Chunk {i} has incorrect index {chunk.chunk_index}"
 
     # Verify total_chunks is consistent
     total = len(chunks)
@@ -202,10 +213,11 @@ def test_chunk_document_deterministic_ids(chunker):
         period_of_report=date(2024, 6, 30),
         source="SEC EDGAR",
         sections={
-            "item_1": "Microsoft Corporation provides software and cloud services. " * 15,
+            "item_1": "Microsoft Corporation provides software and cloud services. "
+            * 15,
         },
         file_path="/path/to/filing",
-        accession_number="0001234567-24-000002"
+        accession_number="0001234567-24-000002",
     )
 
     # Chunk twice
@@ -227,10 +239,11 @@ def test_chunk_article_single_chunk_for_short_article(chunker):
     article = RawArticle(
         ticker="GOOGL",
         title="Google Announces New AI Features",
-        content="Google announced today a suite of new artificial intelligence features " * 20,
+        content="Google announced today a suite of new artificial intelligence features "
+        * 20,
         published_date=date(2024, 3, 15),
         url="https://example.com/google-ai",
-        source="Reuters"
+        source="Reuters",
     )
 
     chunks = chunker.chunk_article(article)
@@ -343,9 +356,9 @@ def test_chunk_text_merges_short_trailing_sentence_instead_of_dropping(chunker):
     chunks = chunker.chunk_text(text)
 
     assert len(chunks) >= 1
-    assert any(closing_sentence in c for c in chunks), (
-        "Short trailing sentence must appear in the output, not be silently dropped"
-    )
+    assert any(
+        closing_sentence in c for c in chunks
+    ), "Short trailing sentence must appear in the output, not be silently dropped"
 
 
 def test_count_tokens_consistent_with_tiktoken(chunker):

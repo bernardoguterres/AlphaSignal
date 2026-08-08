@@ -149,7 +149,9 @@ def test_vector_store_normalises_embeddings(tmp_path):
         assert 0.0 <= score <= 1.0, f"Score {score} out of range [0, 1]"
 
 
-def test_vector_store_save_does_not_clobber_existing_files_on_mid_write_failure(tmp_path):
+def test_vector_store_save_does_not_clobber_existing_files_on_mid_write_failure(
+    tmp_path,
+):
     """Audit bug: save() wrote index.faiss and chunk_ids.json as two separate
     non-atomic steps, so a crash between them left the on-disk pair
     inconsistent. save() must write to temp files and only replace the real
@@ -355,7 +357,9 @@ def test_metadata_store_get_chunks_by_date_range_filters_by_ticker(tmp_path):
     assert len(aapl_only) == 1
     assert aapl_only[0].ticker == "AAPL"
 
-    both = store.get_chunks_by_date_range(start=date(2024, 1, 1), end=date(2024, 12, 31))
+    both = store.get_chunks_by_date_range(
+        start=date(2024, 1, 1), end=date(2024, 12, 31)
+    )
     assert len(both) == 2
 
 
@@ -377,7 +381,7 @@ def test_metadata_store_add_and_retrieve(tmp_path):
             date=date(2024, 1, 1),
             url=None,
             chunk_index=i,
-            total_chunks=5
+            total_chunks=5,
         )
         for i in range(5)
     ]
@@ -413,7 +417,7 @@ def test_metadata_store_deduplicates(tmp_path):
         date=date(2024, 1, 1),
         url=None,
         chunk_index=0,
-        total_chunks=1
+        total_chunks=1,
     )
 
     # Add twice
@@ -453,7 +457,7 @@ def test_embedder_uses_cache(test_config, tmp_path):
         cache.set(f"chunk_{i:03d}", embedding)
 
     # Mock OpenAI client initialization
-    with patch('alphasignal.embeddings.embedder.OpenAI') as MockOpenAI:
+    with patch("alphasignal.embeddings.embedder.OpenAI") as MockOpenAI:
         # Create embedder with cache
         embedder = Embedder(test_config, cache)
 
@@ -470,7 +474,7 @@ def test_embedder_uses_cache(test_config, tmp_path):
                 date=date.today(),
                 url=f"http://test.com/{i}",
                 chunk_index=i,
-                total_chunks=7
+                total_chunks=7,
             )
             for i in range(7)
         ]
@@ -479,10 +483,12 @@ def test_embedder_uses_cache(test_config, tmp_path):
         mock_response = MagicMock()
         mock_response.data = [
             MagicMock(embedding=np.random.rand(1536).tolist()),
-            MagicMock(embedding=np.random.rand(1536).tolist())
+            MagicMock(embedding=np.random.rand(1536).tolist()),
         ]
 
-        with patch.object(embedder.client.embeddings, 'create', return_value=mock_response) as mock_create:
+        with patch.object(
+            embedder.client.embeddings, "create", return_value=mock_response
+        ) as mock_create:
             # Embed chunks
             result = embedder.embed_chunks(chunks)
 
@@ -494,7 +500,7 @@ def test_embedder_uses_cache(test_config, tmp_path):
 
             # Verify it was called with only the 2 uncached texts
             call_args = mock_create.call_args
-            assert len(call_args.kwargs['input']) == 2
+            assert len(call_args.kwargs["input"]) == 2
 
 
 def test_embedding_cache_persists_across_instances(tmp_path):
@@ -550,7 +556,7 @@ def test_embedding_cache_rejects_pickled_payload(tmp_path):
 
 def test_embedder_embed_texts_empty_list_returns_empty_array(test_config):
     """Test that embed_texts([]) short-circuits without calling the API."""
-    with patch('alphasignal.embeddings.embedder.OpenAI'):
+    with patch("alphasignal.embeddings.embedder.OpenAI"):
         cache = MagicMock()
         embedder = Embedder(test_config, cache)
 
@@ -561,7 +567,7 @@ def test_embedder_embed_texts_empty_list_returns_empty_array(test_config):
 
 def test_embedder_embed_chunks_empty_list_returns_empty_dict(test_config):
     """Test that embed_chunks([]) returns {} without touching the cache."""
-    with patch('alphasignal.embeddings.embedder.OpenAI'):
+    with patch("alphasignal.embeddings.embedder.OpenAI"):
         cache = MagicMock()
         embedder = Embedder(test_config, cache)
 
@@ -575,7 +581,7 @@ def test_embedder_retries_then_succeeds_after_transient_error(test_config, tmp_p
     """Test that embed_texts retries on failure and succeeds on a later attempt."""
     cache = EmbeddingCache(str(tmp_path / "retry_cache.pkl"))
 
-    with patch('alphasignal.embeddings.embedder.OpenAI'):
+    with patch("alphasignal.embeddings.embedder.OpenAI"):
         embedder = Embedder(test_config, cache)
         embedder.retry_delay = 0.01  # keep the test fast
 
@@ -584,9 +590,9 @@ def test_embedder_retries_then_succeeds_after_transient_error(test_config, tmp_p
 
         with patch.object(
             embedder.client.embeddings,
-            'create',
+            "create",
             side_effect=[Exception("transient error"), success_response],
-        ) as mock_create, patch('alphasignal.embeddings.embedder.time.sleep'):
+        ) as mock_create, patch("alphasignal.embeddings.embedder.time.sleep"):
             result = embedder.embed_texts(["hello world"])
 
     assert mock_create.call_count == 2
@@ -597,15 +603,15 @@ def test_embedder_raises_after_exhausting_retries(test_config, tmp_path):
     """Test that embed_texts raises once max_retries is exhausted."""
     cache = EmbeddingCache(str(tmp_path / "fail_cache.pkl"))
 
-    with patch('alphasignal.embeddings.embedder.OpenAI'):
+    with patch("alphasignal.embeddings.embedder.OpenAI"):
         embedder = Embedder(test_config, cache)
         embedder.max_retries = 2
         embedder.retry_delay = 0.01
 
         with patch.object(
             embedder.client.embeddings,
-            'create',
+            "create",
             side_effect=Exception("permanent failure"),
-        ), patch('alphasignal.embeddings.embedder.time.sleep'):
+        ), patch("alphasignal.embeddings.embedder.time.sleep"):
             with pytest.raises(Exception, match="permanent failure"):
                 embedder.embed_texts(["hello world"])

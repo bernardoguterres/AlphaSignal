@@ -37,7 +37,9 @@ def test_evaluator_loads_golden_set(golden_set_path):
         assert "question_type" in entry, "Missing 'question_type' field"
 
 
-def test_evaluator_evaluate_runs_against_real_golden_set_question_field(golden_set_path):
+def test_evaluator_evaluate_runs_against_real_golden_set_question_field(
+    golden_set_path,
+):
     """Audit bug: evaluate() read item["query"], but the real committed
     golden set uses "question" - this raised a raw KeyError and was never
     caught because every other test used a synthetic golden set with
@@ -234,12 +236,12 @@ def test_golden_set_has_variety_of_question_types(golden_set_path):
     question_types = set(entry["question_type"] for entry in golden_set)
 
     # Should have at least 3 distinct question types
-    assert len(question_types) >= 3, (
-        f"Expected at least 3 question types, got {len(question_types)}: {question_types}"
-    )
+    assert (
+        len(question_types) >= 3
+    ), f"Expected at least 3 question types, got {len(question_types)}: {question_types}"
 
     # Check for expected types
     expected_types = {"factual", "trend", "comparative", "sentiment", "specific"}
-    assert question_types.issubset(expected_types), (
-        f"Unexpected question types: {question_types - expected_types}"
-    )
+    assert question_types.issubset(
+        expected_types
+    ), f"Unexpected question types: {question_types - expected_types}"

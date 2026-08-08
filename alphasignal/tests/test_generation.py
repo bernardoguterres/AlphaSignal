@@ -14,11 +14,7 @@ from alphasignal.retrieval import RetrievedChunk
 def test_config():
     """Provide test configuration."""
     return {
-        "generation": {
-            "model": "gpt-4o-mini",
-            "max_tokens": 1000,
-            "temperature": 0.1
-        }
+        "generation": {"model": "gpt-4o-mini", "max_tokens": 1000, "temperature": 0.1}
     }
 
 
@@ -38,7 +34,7 @@ def test_chunks():
             dense_score=0.95,
             sparse_score=0.87,
             hybrid_score=0.92,
-            final_score=0.94
+            final_score=0.94,
         ),
         RetrievedChunk(
             chunk_id="aapl_10k_test_0002",
@@ -52,7 +48,7 @@ def test_chunks():
             dense_score=0.89,
             sparse_score=0.82,
             hybrid_score=0.86,
-            final_score=0.88
+            final_score=0.88,
         ),
         RetrievedChunk(
             chunk_id="aapl_10k_test_0003",
@@ -66,17 +62,19 @@ def test_chunks():
             dense_score=0.78,
             sparse_score=0.75,
             hybrid_score=0.77,
-            final_score=0.80
-        )
+            final_score=0.80,
+        ),
     ]
 
 
 def test_rag_generator_builds_prompt_with_context(test_config, test_chunks):
     """Test that build_prompt includes all context chunks."""
-    with patch('alphasignal.generation.generator.OpenAI'):
+    with patch("alphasignal.generation.generator.OpenAI"):
         generator = RAGGenerator(test_config)
 
-        system_msg, user_msg = generator.build_prompt("What is Apple's revenue?", test_chunks)
+        system_msg, user_msg = generator.build_prompt(
+            "What is Apple's revenue?", test_chunks
+        )
 
         # System message should contain guidance
         assert "financial research assistant" in system_msg.lower()
@@ -98,7 +96,7 @@ def test_rag_generator_builds_prompt_with_context(test_config, test_chunks):
 
 def test_rag_generator_parses_citations(test_config, test_chunks):
     """Test that _parse_citations correctly extracts cited chunks."""
-    with patch('alphasignal.generation.generator.OpenAI'):
+    with patch("alphasignal.generation.generator.OpenAI"):
         generator = RAGGenerator(test_config)
 
         # Mock answer with citations
@@ -117,11 +115,13 @@ def test_rag_generator_parses_citations(test_config, test_chunks):
 
 def test_rag_generator_handles_no_citations(test_config, test_chunks):
     """Test that generate handles answers with no citations."""
-    with patch('alphasignal.generation.generator.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.generator.OpenAI") as MockOpenAI:
         # Mock OpenAI response with no citations
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "I don't have enough information to answer this question."
+        mock_response.choices[0].message.content = (
+            "I don't have enough information to answer this question."
+        )
         mock_response.usage.prompt_tokens = 100
         mock_response.usage.completion_tokens = 20
 
@@ -135,14 +135,16 @@ def test_rag_generator_handles_no_citations(test_config, test_chunks):
         # Should have result with no citations
         assert isinstance(result, GenerationResult)
         assert len(result.cited_chunks) == 0
-        assert result.answer == "I don't have enough information to answer this question."
+        assert (
+            result.answer == "I don't have enough information to answer this question."
+        )
         assert result.prompt_tokens == 100
         assert result.completion_tokens == 20
 
 
 def test_rag_generator_handles_multiple_citations_same_source(test_config, test_chunks):
     """Test that duplicate citations to same source only appear once."""
-    with patch('alphasignal.generation.generator.OpenAI'):
+    with patch("alphasignal.generation.generator.OpenAI"):
         generator = RAGGenerator(test_config)
 
         # Answer citing Source 1 twice
@@ -157,7 +159,7 @@ def test_rag_generator_handles_multiple_citations_same_source(test_config, test_
 
 def test_rag_generator_handles_invalid_source_numbers(test_config, test_chunks):
     """Test that invalid source numbers are ignored."""
-    with patch('alphasignal.generation.generator.OpenAI'):
+    with patch("alphasignal.generation.generator.OpenAI"):
         generator = RAGGenerator(test_config)
 
         # Answer with invalid source numbers
@@ -171,7 +173,7 @@ def test_rag_generator_handles_invalid_source_numbers(test_config, test_chunks):
 
 def test_rag_generator_handles_empty_chunks(test_config):
     """Test that generator handles empty chunk list gracefully."""
-    with patch('alphasignal.generation.generator.OpenAI'):
+    with patch("alphasignal.generation.generator.OpenAI"):
         generator = RAGGenerator(test_config)
 
         result = generator.generate("What is Apple's revenue?", [])
@@ -186,7 +188,7 @@ def test_rag_generator_handles_empty_chunks(test_config):
 
 def test_rag_generator_handles_api_error(test_config, test_chunks):
     """Test that generator handles OpenAI API errors gracefully."""
-    with patch('alphasignal.generation.generator.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.generator.OpenAI") as MockOpenAI:
         # Mock OpenAI to raise an exception
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("API Error")

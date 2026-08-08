@@ -19,12 +19,12 @@ def test_config():
                 "sources": [
                     {
                         "name": "Yahoo Finance",
-                        "url_template": "https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}"
+                        "url_template": "https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}",
                     },
                     {
                         "name": "Reuters",
-                        "url_template": "https://feeds.reuters.com/reuters/companyNews"
-                    }
+                        "url_template": "https://feeds.reuters.com/reuters/companyNews",
+                    },
                 ],
                 "max_articles_per_ticker": 50,
                 "max_age_days": 90,
@@ -54,15 +54,23 @@ def mock_rss_feed(ticker: str, n_articles: int, days_old: int = 0) -> MagicMock:
     feed.entries = []
 
     published_time = datetime.now() - timedelta(days=days_old)
-    published_struct = time.struct_time((
-        published_time.year,
-        published_time.month,
-        published_time.day,
-        12, 0, 0, 0, 0, 0
-    ))
+    published_struct = time.struct_time(
+        (
+            published_time.year,
+            published_time.month,
+            published_time.day,
+            12,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+    )
 
     class Entry(dict):
         """Dict subclass that allows attribute access."""
+
         def __getattr__(self, key):
             try:
                 return self[key]
@@ -73,13 +81,17 @@ def mock_rss_feed(ticker: str, n_articles: int, days_old: int = 0) -> MagicMock:
             self[key] = value
 
     for i in range(n_articles):
-        entry = Entry({
-            "title": f"{ticker} Stock News Article {i + 1}",
-            "link": f"https://example.com/article-{ticker}-{i + 1}",
-            "published_parsed": published_struct,
-            "updated_parsed": None
-        })
-        entry["summary"] = f"This is a news article about {ticker} and its business operations. " * 10
+        entry = Entry(
+            {
+                "title": f"{ticker} Stock News Article {i + 1}",
+                "link": f"https://example.com/article-{ticker}-{i + 1}",
+                "published_parsed": published_struct,
+                "updated_parsed": None,
+            }
+        )
+        entry["summary"] = (
+            f"This is a news article about {ticker} and its business operations. " * 10
+        )
 
         feed.entries.append(entry)
 
@@ -112,7 +124,7 @@ def test_fetch_articles_filters_by_age(news_ingester):
     with patch("alphasignal.ingestion.news.feedparser.parse") as mock_parse:
         # First call returns 5 recent articles, second call returns 5 old articles
         mock_parse.side_effect = [
-            mock_rss_feed(ticker, 5, days_old=10),   # Recent
+            mock_rss_feed(ticker, 5, days_old=10),  # Recent
             mock_rss_feed(ticker, 5, days_old=100),  # Old (> 90 days)
         ]
 
@@ -137,13 +149,13 @@ def test_fetch_articles_deduplicates_by_url(news_ingester):
     feed = MagicMock()
     # Use recent date to avoid age filtering
     recent_date = datetime.now() - timedelta(days=5)
-    published_struct = time.struct_time((
-        recent_date.year, recent_date.month, recent_date.day,
-        12, 0, 0, 0, 0, 0
-    ))
+    published_struct = time.struct_time(
+        (recent_date.year, recent_date.month, recent_date.day, 12, 0, 0, 0, 0, 0)
+    )
 
     class Entry(dict):
         """Dict subclass that allows attribute access."""
+
         def __getattr__(self, key):
             try:
                 return self[key]
@@ -154,28 +166,34 @@ def test_fetch_articles_deduplicates_by_url(news_ingester):
             self[key] = value
 
     # 3 articles, but 2 with the same URL
-    entry1 = Entry({
-        "title": f"{ticker} Article 1",
-        "link": "https://example.com/article-1",
-        "published_parsed": published_struct,
-        "updated_parsed": None
-    })
+    entry1 = Entry(
+        {
+            "title": f"{ticker} Article 1",
+            "link": "https://example.com/article-1",
+            "published_parsed": published_struct,
+            "updated_parsed": None,
+        }
+    )
     entry1["summary"] = f"This is about {ticker}. " * 10
 
-    entry2 = Entry({
-        "title": f"{ticker} Article 2",
-        "link": "https://example.com/article-1",  # Duplicate URL
-        "published_parsed": published_struct,
-        "updated_parsed": None
-    })
+    entry2 = Entry(
+        {
+            "title": f"{ticker} Article 2",
+            "link": "https://example.com/article-1",  # Duplicate URL
+            "published_parsed": published_struct,
+            "updated_parsed": None,
+        }
+    )
     entry2["summary"] = f"This is also about {ticker}. " * 10
 
-    entry3 = Entry({
-        "title": f"{ticker} Article 3",
-        "link": "https://example.com/article-3",
-        "published_parsed": published_struct,
-        "updated_parsed": None
-    })
+    entry3 = Entry(
+        {
+            "title": f"{ticker} Article 3",
+            "link": "https://example.com/article-3",
+            "published_parsed": published_struct,
+            "updated_parsed": None,
+        }
+    )
     entry3["summary"] = f"Another article about {ticker}. " * 10
 
     feed.entries = [entry1, entry2, entry3]
@@ -202,13 +220,13 @@ def test_fetch_articles_filters_irrelevant(news_ingester):
     feed = MagicMock()
     # Use recent date to avoid age filtering
     recent_date = datetime.now() - timedelta(days=5)
-    published_struct = time.struct_time((
-        recent_date.year, recent_date.month, recent_date.day,
-        12, 0, 0, 0, 0, 0
-    ))
+    published_struct = time.struct_time(
+        (recent_date.year, recent_date.month, recent_date.day, 12, 0, 0, 0, 0, 0)
+    )
 
     class Entry(dict):
         """Dict subclass that allows attribute access."""
+
         def __getattr__(self, key):
             try:
                 return self[key]
@@ -221,24 +239,30 @@ def test_fetch_articles_filters_irrelevant(news_ingester):
     # 5 AAPL articles
     aapl_entries = []
     for i in range(5):
-        entry = Entry({
-            "title": f"Apple Stock News {i + 1}",
-            "link": f"https://example.com/apple-{i + 1}",
-            "published_parsed": published_struct,
-            "updated_parsed": None
-        })
-        entry["summary"] = f"Apple Inc. continues to innovate in consumer electronics. " * 10
+        entry = Entry(
+            {
+                "title": f"Apple Stock News {i + 1}",
+                "link": f"https://example.com/apple-{i + 1}",
+                "published_parsed": published_struct,
+                "updated_parsed": None,
+            }
+        )
+        entry["summary"] = (
+            f"Apple Inc. continues to innovate in consumer electronics. " * 10
+        )
         aapl_entries.append(entry)
 
     # 3 unrelated articles (no mention of AAPL or Apple)
     unrelated_entries = []
     for i in range(3):
-        entry = Entry({
-            "title": f"Tesla Stock Update {i + 1}",
-            "link": f"https://example.com/tesla-{i + 1}",
-            "published_parsed": published_struct,
-            "updated_parsed": None
-        })
+        entry = Entry(
+            {
+                "title": f"Tesla Stock Update {i + 1}",
+                "link": f"https://example.com/tesla-{i + 1}",
+                "published_parsed": published_struct,
+                "updated_parsed": None,
+            }
+        )
         entry["summary"] = f"Tesla continues to lead in electric vehicles. " * 10
         unrelated_entries.append(entry)
 
@@ -321,7 +345,7 @@ def test_is_relevant_matches_company_name(news_ingester):
         content="Apple Inc. has announced a new line of innovative products that will revolutionize the market.",
         published_date=date.today(),
         url="https://example.com/apple-news",
-        source="Test Source"
+        source="Test Source",
     )
 
     # Should match on company name
@@ -334,7 +358,7 @@ def test_is_relevant_matches_company_name(news_ingester):
         content="The stock market continues to show strong performance across various sectors.",
         published_date=date.today(),
         url="https://example.com/market-news",
-        source="Test Source"
+        source="Test Source",
     )
 
     # Should not match
@@ -358,16 +382,22 @@ def test_fetch_articles_stops_at_max_articles_per_ticker(news_ingester):
 def test_parse_article_uses_content_field_when_no_summary(news_ingester):
     """Test that parse_article falls back to entry.content when summary is absent."""
     entry = MagicMock()
-    entry.get = MagicMock(side_effect=lambda key, default=None: {
-        "title": "Content Field Article",
-        "link": "https://example.com/content-field",
-    }.get(key, default))
+    entry.get = MagicMock(
+        side_effect=lambda key, default=None: {
+            "title": "Content Field Article",
+            "link": "https://example.com/content-field",
+        }.get(key, default)
+    )
     entry.title = "Content Field Article"
     entry.link = "https://example.com/content-field"
     entry.published_parsed = time.struct_time((2024, 1, 1, 12, 0, 0, 0, 0, 0))
     entry.updated_parsed = None
     entry.summary = None
-    entry.content = [{"value": "This is the article body coming from the content field, long enough to pass the minimum length check."}]
+    entry.content = [
+        {
+            "value": "This is the article body coming from the content field, long enough to pass the minimum length check."
+        }
+    ]
     entry.description = None
 
     result = news_ingester.parse_article(entry)

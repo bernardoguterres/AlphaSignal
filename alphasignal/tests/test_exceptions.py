@@ -12,7 +12,10 @@ from alphasignal.api.exceptions import (
 def test_alphasignal_error_stores_message_code_and_detail():
     """Test that the base error exposes message, code, detail, and extra kwargs."""
     err = AlphaSignalError(
-        message="Something broke", code="CUSTOM_CODE", detail="stack trace here", foo="bar"
+        message="Something broke",
+        code="CUSTOM_CODE",
+        detail="stack trace here",
+        foo="bar",
     )
 
     assert err.message == "Something broke"

@@ -38,7 +38,14 @@ def test_fetch_filings_returns_raw_documents(edgar_ingester, tmp_path):
     ticker = "AAPL"
     filing_type = "10-K"
 
-    filing_dir = tmp_path / "edgar" / "sec-edgar-filings" / ticker / filing_type / "0001234567-23-000001"
+    filing_dir = (
+        tmp_path
+        / "edgar"
+        / "sec-edgar-filings"
+        / ticker
+        / filing_type
+        / "0001234567-23-000001"
+    )
     filing_dir.mkdir(parents=True, exist_ok=True)
 
     # Create mock filing file with realistic content (> 500 chars after parsing)
@@ -67,14 +74,12 @@ def test_fetch_filings_returns_raw_documents(edgar_ingester, tmp_path):
     filing_file.write_text(html_content)
 
     # Mock the downloader
-    with patch.object(edgar_ingester, 'downloader') as mock_downloader:
+    with patch.object(edgar_ingester, "downloader") as mock_downloader:
         mock_downloader.get = MagicMock()
 
         # Call fetch_filings
         results = edgar_ingester.fetch_filings(
-            ticker=ticker,
-            filing_types=[filing_type],
-            years_back=2
+            ticker=ticker, filing_types=[filing_type], years_back=2
         )
 
     # Assertions
@@ -90,7 +95,7 @@ def test_fetch_filings_returns_raw_documents(edgar_ingester, tmp_path):
 def test_parse_filing_strips_html_tags(edgar_ingester):
     """Test that parse_filing removes HTML tags correctly."""
     # Create temp HTML file with > 500 chars of meaningful content
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
         html_content = """
         <html>
         <head>
@@ -132,7 +137,7 @@ def test_parse_filing_strips_html_tags(edgar_ingester):
 def test_parse_filing_handles_malformed_html(edgar_ingester):
     """Test that parse_filing returns empty string for very short content."""
     # Create temp file with minimal content
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
         f.write("<html><body>short</body></html>")
         temp_path = Path(f.name)
 
@@ -207,14 +212,14 @@ def test_fetch_filings_handles_network_error(edgar_ingester):
     import requests.exceptions
 
     # Mock the downloader to raise an exception
-    with patch.object(edgar_ingester, 'downloader') as mock_downloader:
-        mock_downloader.get.side_effect = requests.exceptions.RequestException("Network error")
+    with patch.object(edgar_ingester, "downloader") as mock_downloader:
+        mock_downloader.get.side_effect = requests.exceptions.RequestException(
+            "Network error"
+        )
 
         # Should return empty list, not raise
         results = edgar_ingester.fetch_filings(
-            ticker="AAPL",
-            filing_types=["10-K"],
-            years_back=2
+            ticker="AAPL", filing_types=["10-K"], years_back=2
         )
 
         assert results == []
@@ -290,9 +295,7 @@ def test_fetch_filings_skips_ticker_with_no_downloaded_dir(edgar_ingester):
 
 def test_fetch_filings_skips_non_directory_entries(edgar_ingester, tmp_path):
     """Test that stray files inside the ticker/filing_type dir are skipped."""
-    ticker_dir = (
-        edgar_ingester.download_dir / "sec-edgar-filings" / "AAPL" / "10-K"
-    )
+    ticker_dir = edgar_ingester.download_dir / "sec-edgar-filings" / "AAPL" / "10-K"
     ticker_dir.mkdir(parents=True)
     # A stray file (not a directory) should be skipped, not crash the loop
     (ticker_dir / "stray.txt").write_text("not a filing directory")
@@ -307,9 +310,7 @@ def test_fetch_filings_skips_non_directory_entries(edgar_ingester, tmp_path):
     assert results == []
 
 
-def test_fetch_filings_skips_directory_with_no_filing_document(
-    edgar_ingester
-):
+def test_fetch_filings_skips_directory_with_no_filing_document(edgar_ingester):
     """Test that a filing directory without any recognizable document is skipped."""
     filing_dir = (
         edgar_ingester.download_dir

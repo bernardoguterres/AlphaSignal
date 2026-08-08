@@ -14,12 +14,7 @@ from alphasignal.ingestion import Chunk
 @pytest.fixture
 def test_config():
     """Provide test configuration."""
-    return {
-        "generation": {
-            "model": "gpt-4o-mini",
-            "sentiment_cache_hours": 24
-        }
-    }
+    return {"generation": {"model": "gpt-4o-mini", "sentiment_cache_hours": 24}}
 
 
 @pytest.fixture
@@ -36,7 +31,7 @@ def test_chunk():
         date=date(2024, 10, 31),
         url=None,
         chunk_index=0,
-        total_chunks=1
+        total_chunks=1,
     )
 
 
@@ -56,7 +51,7 @@ def test_chunks():
             date=today - timedelta(days=i * 30),  # Spread across months
             url=None,
             chunk_index=i,
-            total_chunks=15
+            total_chunks=15,
         )
         for i in range(15)
     ]
@@ -64,17 +59,23 @@ def test_chunks():
 
 def test_sentiment_extractor_returns_valid_score(test_config, test_chunk):
     """Test that sentiment extraction returns valid scores."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         # Mock OpenAI response with valid JSON
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = json.dumps({
-            "score": 0.75,
-            "confidence": 0.85,
-            "key_positive": ["strong revenue growth", "exceptional sales", "robust demand"],
-            "key_negative": [],
-            "summary": "Positive sentiment driven by strong sales performance."
-        })
+        mock_response.choices[0].message.content = json.dumps(
+            {
+                "score": 0.75,
+                "confidence": 0.85,
+                "key_positive": [
+                    "strong revenue growth",
+                    "exceptional sales",
+                    "robust demand",
+                ],
+                "key_negative": [],
+                "summary": "Positive sentiment driven by strong sales performance.",
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
@@ -95,17 +96,19 @@ def test_sentiment_extractor_returns_valid_score(test_config, test_chunk):
 
 def test_sentiment_extractor_caches_results(test_config, test_chunk):
     """Test that sentiment extraction caches results."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         # Mock OpenAI response
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = json.dumps({
-            "score": 0.5,
-            "confidence": 0.7,
-            "key_positive": ["growth"],
-            "key_negative": [],
-            "summary": "Neutral to positive sentiment."
-        })
+        mock_response.choices[0].message.content = json.dumps(
+            {
+                "score": 0.5,
+                "confidence": 0.7,
+                "key_positive": ["growth"],
+                "key_negative": [],
+                "summary": "Neutral to positive sentiment.",
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
@@ -129,7 +132,7 @@ def test_sentiment_extractor_caches_results(test_config, test_chunk):
 
 def test_sentiment_extractor_handles_json_error(test_config, test_chunk):
     """Test that sentiment extraction handles JSON parse errors."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         # Mock OpenAI response with invalid JSON
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -149,13 +152,15 @@ def test_sentiment_extractor_handles_json_error(test_config, test_chunk):
         assert result.summary == "Parse error"
 
 
-def test_sentiment_extractor_nan_score_does_not_clamp_to_max_bullish(test_config, test_chunk):
+def test_sentiment_extractor_nan_score_does_not_clamp_to_max_bullish(
+    test_config, test_chunk
+):
     """Regression test: NaN score/confidence from the LLM provider must
     NOT silently clamp to 1.0 (max bullish) - Python's max()/min() don't
     special-case NaN, so max(-1.0, min(1.0, nan)) previously evaluated to
     1.0, turning a provider malfunction into a false maximum-bullish
     signal. Must fail safe to neutral instead, like a JSON parse error."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         # json.dumps can't emit NaN in strict mode, but Python's json module
@@ -180,12 +185,14 @@ def test_sentiment_extractor_nan_score_does_not_clamp_to_max_bullish(test_config
         assert result.summary == "Invalid score from provider"
 
 
-def test_sentiment_extractor_infinity_score_does_not_clamp_silently(test_config, test_chunk):
+def test_sentiment_extractor_infinity_score_does_not_clamp_silently(
+    test_config, test_chunk
+):
     """Same regression as the NaN case, for +Infinity - clamping
     +Infinity to 1.0 happens to look "correct" numerically, but it still
     masks a genuine provider malfunction as a legitimate strong-buy score
     rather than flagging it."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = (
@@ -205,20 +212,24 @@ def test_sentiment_extractor_infinity_score_does_not_clamp_silently(test_config,
         assert result.summary == "Invalid score from provider"
 
 
-def test_sentiment_extractor_ordinary_out_of_range_score_still_clamps(test_config, test_chunk):
+def test_sentiment_extractor_ordinary_out_of_range_score_still_clamps(
+    test_config, test_chunk
+):
     """Sanity check the fix didn't break legitimate clamping - an ordinary
     (finite) out-of-range value like 1.5 must still clamp to 1.0, not be
     treated as invalid."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = json.dumps({
-            "score": 1.5,
-            "confidence": 0.9,
-            "key_positive": [],
-            "key_negative": [],
-            "summary": "test"
-        })
+        mock_response.choices[0].message.content = json.dumps(
+            {
+                "score": 1.5,
+                "confidence": 0.9,
+                "key_positive": [],
+                "key_negative": [],
+                "summary": "test",
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
@@ -233,17 +244,19 @@ def test_sentiment_extractor_ordinary_out_of_range_score_still_clamps(test_confi
 
 def test_extract_ticker_sentiment_returns_most_recent(test_config, test_chunks):
     """Test that extract_ticker_sentiment returns at most 10 most recent chunks."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         # Mock OpenAI response
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = json.dumps({
-            "score": 0.6,
-            "confidence": 0.8,
-            "key_positive": ["revenue growth"],
-            "key_negative": [],
-            "summary": "Positive outlook."
-        })
+        mock_response.choices[0].message.content = json.dumps(
+            {
+                "score": 0.6,
+                "confidence": 0.8,
+                "key_positive": ["revenue growth"],
+                "key_negative": [],
+                "summary": "Positive outlook.",
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
@@ -267,24 +280,28 @@ def test_extract_ticker_sentiment_returns_most_recent(test_config, test_chunks):
 
 def test_sentiment_signal_score_range(test_config, test_chunks):
     """Test that all sentiment signals have scores in valid range."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         # Mock varying scores
         scores = [0.8, -0.3, 0.5, -0.7, 0.2, 0.9, -0.1, 0.4, -0.5, 0.6]
 
         def make_response(score):
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.content = json.dumps({
-                "score": score,
-                "confidence": 0.8,
-                "key_positive": ["positive"],
-                "key_negative": ["negative"],
-                "summary": f"Sentiment score: {score}"
-            })
+            mock_response.choices[0].message.content = json.dumps(
+                {
+                    "score": score,
+                    "confidence": 0.8,
+                    "key_positive": ["positive"],
+                    "key_negative": ["negative"],
+                    "summary": f"Sentiment score: {score}",
+                }
+            )
             return mock_response
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = [make_response(s) for s in scores]
+        mock_client.chat.completions.create.side_effect = [
+            make_response(s) for s in scores
+        ]
         MockOpenAI.return_value = mock_client
 
         extractor = SentimentExtractor(test_config)
@@ -296,17 +313,23 @@ def test_sentiment_signal_score_range(test_config, test_chunks):
 
 def test_sentiment_positive_keywords_extracted(test_config, test_chunk):
     """Test that positive keywords are correctly extracted."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         # Mock response with specific positive keywords
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = json.dumps({
-            "score": 0.85,
-            "confidence": 0.9,
-            "key_positive": ["exceptional growth", "strong performance", "record revenue"],
-            "key_negative": [],
-            "summary": "Highly positive financial results."
-        })
+        mock_response.choices[0].message.content = json.dumps(
+            {
+                "score": 0.85,
+                "confidence": 0.9,
+                "key_positive": [
+                    "exceptional growth",
+                    "strong performance",
+                    "record revenue",
+                ],
+                "key_negative": [],
+                "summary": "Highly positive financial results.",
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
@@ -324,17 +347,19 @@ def test_sentiment_positive_keywords_extracted(test_config, test_chunk):
 
 def test_sentiment_cache_ttl_respected(test_config, test_chunk):
     """Test that sentiment cache TTL is respected."""
-    with patch('alphasignal.generation.sentiment.OpenAI') as MockOpenAI:
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         # Mock OpenAI response
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = json.dumps({
-            "score": 0.5,
-            "confidence": 0.7,
-            "key_positive": [],
-            "key_negative": [],
-            "summary": "Neutral sentiment."
-        })
+        mock_response.choices[0].message.content = json.dumps(
+            {
+                "score": 0.5,
+                "confidence": 0.7,
+                "key_positive": [],
+                "key_negative": [],
+                "summary": "Neutral sentiment.",
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
