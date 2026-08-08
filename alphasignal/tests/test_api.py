@@ -65,7 +65,17 @@ def client(tmp_path):
         embedding_cache = EmbeddingCache(str(tmp_path / "test_cache.pkl"))
         embedder = Embedder(config, embedding_cache)
 
-        pipeline = IngestionPipeline(config)
+        # Share the tmp_path-backed stores with the pipeline - without this
+        # it builds its own from config.yaml's real storage paths, loading
+        # the actual production FAISS index/corpus on every test (harmless
+        # when that corpus was empty; became a multi-hour full-suite run
+        # once a real 17k+, later 42k+ chunk corpus existed on disk).
+        pipeline = IngestionPipeline(
+            config,
+            embedder=embedder,
+            vector_store=vector_store,
+            metadata_store=metadata_store,
+        )
         retriever = HybridRetriever(config, embedder, vector_store, metadata_store)
         reranker = CrossEncoderReranker()
         generator = RAGGenerator(config)
@@ -99,7 +109,10 @@ def client(tmp_path):
             query.router, prefix="/query", tags=["query"], dependencies=_auth
         )
         test_app.include_router(
-            sentiment.router, prefix="/sentiment", tags=["sentiment"], dependencies=_auth
+            sentiment.router,
+            prefix="/sentiment",
+            tags=["sentiment"],
+            dependencies=_auth,
         )
         test_app.include_router(
             ingest.router, prefix="/ingest", tags=["ingest"], dependencies=_auth
@@ -509,9 +522,7 @@ def test_sentiment_endpoint_date_range_query(client):
         "extract_ticker_sentiment",
         return_value=[],
     ):
-        response = client.get(
-            "/sentiment/AAPL?date_from=2024-01-01&date_to=2024-12-31"
-        )
+        response = client.get("/sentiment/AAPL?date_from=2024-01-01&date_to=2024-12-31")
 
     assert response.status_code == 200
     assert mock_range.called
@@ -535,7 +546,10 @@ def test_sentiment_endpoint_propagates_errors(client):
         with pytest.raises(RuntimeError, match="db exploded"):
             client.get("/sentiment/AAPL")
 
-    assert client.app.state.app_state.metrics_collector.get_summary()["errors"]["count"] == 1
+    assert (
+        client.app.state.app_state.metrics_collector.get_summary()["errors"]["count"]
+        == 1
+    )
 
 
 def test_sentiment_summary_no_chunks(client):
@@ -713,14 +727,14 @@ def test_ingest_batch_reports_failed_ticker(client):
     def fake_ingest(ticker, filing_types=None, years_back=None):
         if ticker == "BADTICK":
             raise RuntimeError("boom")
-        return IngestResult(ticker=ticker, chunks_created=3, chunks_embedded=3, chunks_stored=3)
+        return IngestResult(
+            ticker=ticker, chunks_created=3, chunks_embedded=3, chunks_stored=3
+        )
 
     with patch.object(
         client.app.state.app_state.pipeline, "full_ingest", side_effect=fake_ingest
     ), patch.object(client.app.state.app_state.retriever, "build_bm25_index"):
-        response = client.post(
-            "/ingest/batch", json={"tickers": ["AAPL", "BADTICK"]}
-        )
+        response = client.post("/ingest/batch", json={"tickers": ["AAPL", "BADTICK"]})
 
     assert response.status_code == 200
     data = response.json()
@@ -745,7 +759,11 @@ def test_metrics_endpoint_reports_recorded_latencies(client):
         mock_retrieve.return_value = []
         mock_rerank.return_value = []
         mock_generate.return_value = GenerationResult(
-            answer="", cited_chunks=[], prompt_tokens=0, completion_tokens=0, model="gpt-4o-mini"
+            answer="",
+            cited_chunks=[],
+            prompt_tokens=0,
+            completion_tokens=0,
+            model="gpt-4o-mini",
         )
         client.post("/query/", json={"query": "What is the revenue?", "top_k": 5})
 
