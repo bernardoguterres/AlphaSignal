@@ -58,8 +58,18 @@ def setup_logging() -> None:
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events."""
     setup_logging()
+    # load_dotenv() must run before the ALPHASIGNAL_API_KEY check below, or a
+    # key set only in .env (not already in the shell environment) reads as
+    # unset here even though it ends up loaded - and enforced - moments
+    # later, since os.environ is process-wide and require_api_key() (per-
+    # request) runs after this whole startup block finishes either way. The
+    # bug was purely this log message lying about the actual security state,
+    # not a real enforcement gap.
+    load_dotenv()
     if os.getenv("ALPHASIGNAL_API_KEY", ""):
-        logger.info("API-key auth ENABLED (ALPHASIGNAL_API_KEY set) - all routes except /health require X-API-Key")
+        logger.info(
+            "API-key auth ENABLED (ALPHASIGNAL_API_KEY set) - all routes except /health require X-API-Key"
+        )
     else:
         logger.warning(
             "API-key auth DISABLED (ALPHASIGNAL_API_KEY not set) - fine locally, "
@@ -72,14 +82,15 @@ async def lifespan(app: FastAPI):
 
     start_time = time.time()
 
-    load_dotenv()
     logger.info("Loaded environment variables")
 
     config_path = Path(__file__).parent.parent.parent / "config.yaml"
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-        logger.info(f"Loaded configuration for {len(config.get('tickers', []))} tickers")
+        logger.info(
+            f"Loaded configuration for {len(config.get('tickers', []))} tickers"
+        )
 
     vector_store, metadata_store, embedder = build_storage_components(config)
     logger.info(f"Vector store loaded: {len(vector_store)} vectors")
@@ -226,6 +237,10 @@ async def general_exception_handler(request: Request, exc: Exception):
 _auth = [Depends(require_api_key)]
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(query.router, prefix="/query", tags=["query"], dependencies=_auth)
-app.include_router(sentiment.router, prefix="/sentiment", tags=["sentiment"], dependencies=_auth)
+app.include_router(
+    sentiment.router, prefix="/sentiment", tags=["sentiment"], dependencies=_auth
+)
 app.include_router(ingest.router, prefix="/ingest", tags=["ingest"], dependencies=_auth)
-app.include_router(metrics.router, prefix="/metrics", tags=["metrics"], dependencies=_auth)
+app.include_router(
+    metrics.router, prefix="/metrics", tags=["metrics"], dependencies=_auth
+)

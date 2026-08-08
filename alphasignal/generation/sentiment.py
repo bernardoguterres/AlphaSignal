@@ -47,7 +47,9 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
         # Cache: chunk_id -> (SentimentResult, timestamp)
         self._cache: dict[str, tuple[SentimentResult, datetime]] = {}
 
-        logger.info(f"Initialized SentimentExtractor with cache_hours={self.cache_hours}")
+        logger.info(
+            f"Initialized SentimentExtractor with cache_hours={self.cache_hours}"
+        )
 
     def extract_sentiment(self, chunk: Chunk) -> SentimentResult:
         """Extract sentiment from a chunk.
@@ -76,11 +78,12 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
             # Call OpenAI API
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0,  # Deterministic output
-                max_tokens=500
+                messages=[{"role": "user", "content": prompt}],
+                # temperature=0 omitted: gpt-5.6-luna rejects any non-default
+                # temperature (reasoning-tier restriction) - see generator.py's
+                # same omission and the caller-facing note about losing
+                # determinism as a result.
+                max_completion_tokens=500,
             )
 
             # Extract response text
@@ -122,30 +125,33 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
                 confidence=confidence,
                 key_positive=sentiment_data.get("key_positive", [])[:3],
                 key_negative=sentiment_data.get("key_negative", [])[:3],
-                summary=sentiment_data.get("summary", "")
+                summary=sentiment_data.get("summary", ""),
             )
 
             # Cache result
             self._cache[chunk.chunk_id] = (result, datetime.now())
 
-            logger.debug(f"Extracted sentiment: score={score:.2f}, confidence={confidence:.2f}")
+            logger.debug(
+                f"Extracted sentiment: score={score:.2f}, confidence={confidence:.2f}"
+            )
             return result
 
         except Exception as e:
-            logger.error(f"Error extracting sentiment for chunk {chunk.chunk_id}: {e}", exc_info=True)
+            logger.error(
+                f"Error extracting sentiment for chunk {chunk.chunk_id}: {e}",
+                exc_info=True,
+            )
             # Return default result
             return SentimentResult(
                 score=0.0,
                 confidence=0.0,
                 key_positive=[],
                 key_negative=[],
-                summary="Parse error"
+                summary="Parse error",
             )
 
     def extract_ticker_sentiment(
-        self,
-        ticker: str,
-        chunks: list[Chunk]
+        self, ticker: str, chunks: list[Chunk]
     ) -> list[SentimentSignal]:
         """Extract sentiment signals for a ticker from chunks.
 
@@ -156,7 +162,9 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
         Returns:
             List of SentimentSignal objects sorted by date descending
         """
-        logger.info(f"Extracting ticker sentiment for {ticker} from {len(chunks)} chunks")
+        logger.info(
+            f"Extracting ticker sentiment for {ticker} from {len(chunks)} chunks"
+        )
 
         # Sort by date descending and take most recent 10
         sorted_chunks = sorted(chunks, key=lambda c: c.date, reverse=True)
@@ -176,7 +184,7 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
                 doc_type=chunk.doc_type,
                 summary=sentiment.summary,
                 key_positive=sentiment.key_positive,
-                key_negative=sentiment.key_negative
+                key_negative=sentiment.key_negative,
             )
             signals.append(signal)
 
@@ -200,7 +208,7 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
             return json.loads(response_text.strip())
         except json.JSONDecodeError:
             # Try to extract JSON substring using regex
-            json_match = re.search(r'\{[^}]+\}', response_text, re.DOTALL)
+            json_match = re.search(r"\{[^}]+\}", response_text, re.DOTALL)
             if json_match:
                 try:
                     return json.loads(json_match.group())
@@ -214,5 +222,5 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
                 "confidence": 0.0,
                 "key_positive": [],
                 "key_negative": [],
-                "summary": "Parse error"
+                "summary": "Parse error",
             }

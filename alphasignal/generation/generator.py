@@ -35,11 +35,7 @@ class RAGGenerator:
 
         logger.info(f"Initialized RAGGenerator with model={self.model}")
 
-    def build_prompt(
-        self,
-        query: str,
-        chunks: list[RetrievedChunk]
-    ) -> tuple[str, str]:
+    def build_prompt(self, query: str, chunks: list[RetrievedChunk]) -> tuple[str, str]:
         """Build system and user messages for LLM.
 
         Args:
@@ -67,18 +63,12 @@ class RAGGenerator:
 
         # Build user message
         user_message = (
-            f"Context:\n\n{context_section}\n"
-            f"Question: {query}\n\n"
-            f"Answer:"
+            f"Context:\n\n{context_section}\n" f"Question: {query}\n\n" f"Answer:"
         )
 
         return system_message, user_message
 
-    def generate(
-        self,
-        query: str,
-        chunks: list[RetrievedChunk]
-    ) -> GenerationResult:
+    def generate(self, query: str, chunks: list[RetrievedChunk]) -> GenerationResult:
         """Generate answer using retrieved chunks.
 
         Args:
@@ -95,10 +85,12 @@ class RAGGenerator:
                 cited_chunks=[],
                 prompt_tokens=0,
                 completion_tokens=0,
-                model=self.model
+                model=self.model,
             )
 
-        logger.info(f"Generating answer for query: '{query[:50]}...' with {len(chunks)} chunks")
+        logger.info(
+            f"Generating answer for query: '{query[:50]}...' with {len(chunks)} chunks"
+        )
 
         # Build prompt
         system_message, user_message = self.build_prompt(query, chunks)
@@ -109,10 +101,13 @@ class RAGGenerator:
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_message}
+                    {"role": "user", "content": user_message},
                 ],
-                max_tokens=self.max_tokens,
-                temperature=self.temperature
+                max_completion_tokens=self.max_tokens,
+                # self.temperature (config.yaml's generation.temperature,
+                # default 0.1) omitted: gpt-5.6-luna rejects any non-default
+                # temperature (reasoning-tier restriction, same as
+                # sentiment.py) - only the model's default (1) is accepted.
             )
 
             # Extract answer
@@ -133,7 +128,7 @@ class RAGGenerator:
                 cited_chunks=cited_chunks,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                model=self.model
+                model=self.model,
             )
 
         except Exception as e:
@@ -143,13 +138,11 @@ class RAGGenerator:
                 cited_chunks=[],
                 prompt_tokens=0,
                 completion_tokens=0,
-                model=self.model
+                model=self.model,
             )
 
     def _parse_citations(
-        self,
-        answer: str,
-        chunks: list[RetrievedChunk]
+        self, answer: str, chunks: list[RetrievedChunk]
     ) -> tuple[str, list[RetrievedChunk]]:
         """Parse [Source N] citations from answer.
 
@@ -161,7 +154,7 @@ class RAGGenerator:
             Tuple of (answer, cited_chunks)
         """
         # Find all [Source N] patterns
-        citation_pattern = r'\[Source (\d+)\]'
+        citation_pattern = r"\[Source (\d+)\]"
         matches = re.findall(citation_pattern, answer)
 
         # Map to chunks
