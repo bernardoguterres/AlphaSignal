@@ -1,6 +1,8 @@
 # AlphaSignal
 
-AlphaSignal is a production-grade financial RAG (Retrieval-Augmented Generation) system that ingests SEC EDGAR filings and financial news, chunks documents semantically, stores embeddings in FAISS, retrieves relevant context using hybrid search (BM25 + dense retrieval), reranks with a cross-encoder, and generates answers with citations. It also extracts sentiment signals from financial documents and exposes them via a FastAPI REST API - currently consumed by [AlphaLive](https://github.com/bernardoguterres/AlphaLive)'s pre-execution sentiment gate (see [System Integration](#system-integration) below).
+AlphaSignal is the financial RAG (retrieval-augmented generation) and sentiment component of the [Alpha ecosystem](../README.md). It ingests SEC EDGAR filings and financial news, chunks documents semantically, stores embeddings in FAISS, retrieves relevant context using hybrid search (BM25 + dense retrieval), reranks with a cross-encoder, and generates answers with citations. It also extracts sentiment signals from financial documents and exposes them via a FastAPI REST API - consumed by [AlphaLive](https://github.com/bernardoguterres/AlphaLive)'s pre-execution sentiment gate (see [System Integration](#system-integration) below).
+
+**Status: Portfolio release.** The retrieval/generation/sentiment architecture described below genuinely executes end to end against a real ~42k-chunk corpus (runtime-verified, not just designed) - see [Evaluation](#evaluation) for exactly what has and has not been benchmarked. Sentiment scores are a decision-support signal AlphaLive uses as one gate among several (with fail-open semantics when unavailable), not a standalone trading signal, and nothing here is investment advice.
 
 ## Architecture
 
@@ -23,7 +25,7 @@ flowchart TD
     M --> N
     N --> O[Cross-Encoder Reranker<br/>Top-K Precision]
     O --> P[Top-5 Relevant Chunks]
-    P --> Q[RAG Generator<br/>GPT-4o-mini]
+    P --> Q[RAG Generator<br/>gpt-5.6-luna]
     P --> R[Sentiment Extractor<br/>Cached Scores]
     Q --> S[Answer + Citations]
     R --> T[Sentiment Signals]
@@ -170,9 +172,16 @@ curl -X POST http://localhost:8000/query \
   ],
   "latency_ms": 342,
   "retrieval_scores": [0.92, 0.87, 0.81],
-  "model_used": "gpt-4o-mini"
+  "model_used": "gpt-5.6-luna"
 }
 ```
+
+**Citation integrity:** every `[Source N]` marker in `answer` is guaranteed to resolve to
+`citations[N-1]`. This wasn't always true - validation on 2026-08-15 found that the model could
+cite a source number beyond the number of chunks actually retrieved, and the API silently dropped
+the unresolvable citation from the array without removing the dangling marker from the text.
+Citation parsing now renumbers valid citations sequentially and strips any unresolvable marker;
+re-verified against live queries on the real corpus with zero unresolved references afterward.
 
 ### GET /sentiment/{ticker}
 
@@ -203,9 +212,17 @@ curl http://localhost:8000/sentiment/AAPL
     }
   ],
   "latest_score": 0.75,
-  "latency_ms": 118
+  "latency_ms": 118,
+  "data_available": true
 }
 ```
+
+When there is no ingested data for the ticker/date-range requested, the endpoint returns `200 OK`
+(not an error) with `signals: []`, `latest_score: null`, `data_available: false` - this is how a
+consumer distinguishes "no data" from a genuinely neutral score of `0.0`. A ticker outside the
+configured allowlist returns `404`. Both cases were exercised against the real running service
+during validation, and AlphaLive's client was confirmed to fail open (allow the trade) on both,
+while making the reason (`no_data_bypass` vs `error_bypass`) observable in its own logs.
 
 ### GET /sentiment/{ticker}/summary
 
@@ -349,7 +366,7 @@ curl http://localhost:8000/metrics/
 
 AlphaSignal includes a retrieval evaluation framework with a golden set of 50 Q&A pairs across 10 tickers. It benchmarks four retrieval configurations (naive/semantic chunking, dense/hybrid retrieval, ±reranking) using standard IR metrics (MRR@10, NDCG@5, Hit@3, latency).
 
-**The benchmark has not been run yet** - it requires the corpus to be ingested first (see Roadmap; ingestion costs real OpenAI usage). Once the corpus exists, `alphasignal/scripts/benchmark.py` produces the comparison table; results will be published here. No retrieval-quality claims are made until then.
+**The retrieval benchmark has not been run yet.** The corpus itself is now ingested (see below), and `evaluation/retrieval_golden_set.json` genuinely does hold 50 real question/ticker/relevant_chunk_ids records across 10 tickers (renamed 2026-08-15 from `golden_set.json` to stop it being confused with the unrelated 15-entry sentiment-quality dataset at `alphasignal/evaluation/sentiment_golden_set.json`, which `run_eval.py` reads instead - the two scripts always resolved to different file paths, they just used to share a filename). What's actually missing: every entry's `relevant_chunk_ids` is still an empty list - `annotate_golden_set.py` has never been run against it, so `benchmark.py` has nothing to score retrieval against and now refuses to run rather than report meaningless all-zero metrics. No retrieval-quality claims are made until annotation is done and the benchmark is actually run.
 
 To run the benchmark yourself:
 
@@ -375,7 +392,7 @@ AlphaSignal is part of a multi-repo algorithmic trading system. Actual integrati
 
 AlphaSignal's `/sentiment/{ticker}` endpoint is called by AlphaLive before every order via its async pre-execution gate. Strongly negative sentiment suppresses long entries; strongly positive suppresses shorts. The filter fails open - AlphaLive trades normally if the service is unreachable.
 
-**Current limitation:** the FAISS index has no real data ingested yet (see Roadmap), so the sentiment filter is wired correctly end-to-end but returns neutral scores until the corpus is built.
+**Current status (verified 2026-08-15):** the corpus has been built - `data/metadata.db` holds ~42k chunks for AAPL/MSFT/GOOGL/AMZN/NVDA/META/TSLA/JPM/GS/MS (SEC filings 2015-2019 and 2024-2026, plus recent news) and SPY/QQQ (news only), so `/sentiment/{ticker}` returns real, non-placeholder scores for those tickers rather than neutral placeholders. **Known gap:** there is no ingested data for 2020-01-01 through 2023-12-31 for any ticker (the historical backfill only covers 2015-2019; regular ingestion only covers 2024 onward) - `/sentiment/{ticker}` for that window returns `data_available: false`, not a stale/wrong signal.
 
 ### Calling the API from another service
 
@@ -401,7 +418,6 @@ AlphaSignal/
 ├── config.yaml                    # System configuration
 ├── requirements.txt               # Python dependencies
 ├── README.md                      # This file
-├── EVALUATION.md                  # Retrieval evaluation report
 ├── alphasignal/
 │   ├── api/
 │   │   ├── app.py                # FastAPI application
@@ -454,7 +470,7 @@ AlphaSignal/
 │       ├── test_evaluator.py     # Evaluator tests
 │       └── test_api.py           # API integration tests
 ├── evaluation/
-│   └── golden_set.json           # 50 Q&A pairs for evaluation
+│   └── retrieval_golden_set.json # 50 Q&A pairs for retrieval evaluation (unannotated)
 └── data/                         # Generated data (not in git)
     ├── faiss_index/              # FAISS vector index
     ├── metadata.db               # SQLite metadata
@@ -524,9 +540,9 @@ retrieval:
 **Generation:** LLM model and parameters
 ```yaml
 generation:
-  model: "gpt-4o-mini"
+  model: "gpt-5.6-luna"
   max_tokens: 500
-  temperature: 0.1
+  temperature: 0.1  # gpt-5.6-luna ignores this - reasoning-tier models only accept the default
 ```
 
 **Sentiment:** Caching parameters
@@ -556,7 +572,7 @@ api:
 
 ### Running Tests
 
-157 tests, 92% coverage.
+179 tests, 89% coverage (verified 2026-08-15).
 
 ```bash
 # Run all tests
@@ -600,7 +616,8 @@ python alphasignal/scripts/annotate_golden_set.py
 python alphasignal/scripts/benchmark.py
 ```
 
-Results are saved to `data/benchmark_results.json` and summarized in `EVALUATION.md`.
+Results are saved to `data/benchmark_results.json`. As of this release, the golden set required
+for this benchmark to produce meaningful output has not been annotated - see [Evaluation](#evaluation) above.
 
 ## Troubleshooting
 
@@ -640,25 +657,20 @@ embeddings:
 2. Use fewer tickers
 3. Increase RAM (FAISS requires ~4GB for 10k chunks)
 
-## Roadmap
+## Possible Future Work
 
-### Near-term
-- [ ] Add support for 8-K filings
-- [ ] Implement query expansion for better retrieval
-- [ ] Add caching layer for frequent queries
-- [ ] Support for multi-ticker comparative queries
+This project has reached feature freeze for its current portfolio release. Further work should be
+limited to genuine bugs, security issues, or dependency breakage - not new features. Meaningful
+directions for a future iteration, in priority order:
 
-### Medium-term
-- [ ] Fine-tune embeddings model on financial domain
-- [ ] Add structured data extraction (tables, financials)
-- [ ] Implement temporal awareness ("last quarter", "recent")
-- [ ] Add real-time news ingestion via webhooks
-
-### Long-term
-- [ ] Multi-modal support (charts, images from filings)
-- [ ] Integration with AlphaLab backtesting platform (not built - AlphaLab's fundamental screener currently calls yfinance directly instead of AlphaSignal's API)
-- [x] Deployment config for production (Dockerfile/Procfile/railway.toml, validated on Railway's `amd64` architecture) - **not yet actually deployed**; still needs a live Railway service and the corpus ingested
-- [ ] Build web UI for queries and sentiment visualization
+- **Annotate the retrieval golden set and run the benchmark** - the single biggest gap: 50 real
+  questions exist, none are annotated, so retrieval quality is unmeasured (see Evaluation above).
+- **Close the 2020-2023 corpus gap** - would let `/sentiment/{ticker}` and retrieval cover that
+  window instead of returning `data_available: false`.
+- **Broader paper-trading runtime validation of the full AlphaSignal → AlphaLive integration**,
+  as part of AlphaLive's own longer-running validation (see that repo's limitations).
+- **Actual Railway deployment** - config exists and is locally correct; it has not been exercised
+  as a live deployed service.
 
 ## License
 

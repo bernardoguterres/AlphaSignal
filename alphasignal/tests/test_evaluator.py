@@ -12,7 +12,7 @@ from alphasignal.retrieval.evaluator import RetrievalEvaluator
 def golden_set_path():
     """Get path to golden set."""
     project_root = Path(__file__).parent.parent.parent
-    return project_root / "evaluation" / "golden_set.json"
+    return project_root / "evaluation" / "retrieval_golden_set.json"
 
 
 def test_evaluator_loads_golden_set(golden_set_path):
@@ -70,6 +70,28 @@ def test_evaluator_evaluate_raises_clear_error_when_query_field_missing():
     evaluator.golden_set = [{"id": "bad", "relevant_chunk_ids": []}]
 
     with pytest.raises(KeyError, match="question.*query"):
+        evaluator.evaluate(retriever=None, top_k=5)
+
+
+def test_evaluator_evaluate_raises_clear_error_when_relevant_chunk_ids_missing():
+    """An entry missing 'relevant_chunk_ids' entirely (e.g. a sentiment-
+    schema entry accidentally pointed at the retrieval evaluator) must
+    fail with a clear message identifying the entry, not an opaque
+    KeyError from `item["relevant_chunk_ids"]` (audit remediation item 4,
+    2026-08-15)."""
+    evaluator = RetrievalEvaluator.__new__(RetrievalEvaluator)
+    evaluator.golden_set_path = None
+    evaluator.golden_set = [
+        {
+            "question": "does this entry have a question field?",
+            "ticker": "AAPL",
+            "date": "2022-10-28",
+            "expected_sentiment": "negative",
+            "event_description": "wrong schema entirely - no relevant_chunk_ids",
+        }
+    ]
+
+    with pytest.raises(KeyError, match="relevant_chunk_ids"):
         evaluator.evaluate(retriever=None, top_k=5)
 
 

@@ -158,17 +158,102 @@ def test_rag_generator_handles_multiple_citations_same_source(test_config, test_
 
 
 def test_rag_generator_handles_invalid_source_numbers(test_config, test_chunks):
-    """Test that invalid source numbers are ignored."""
+    """Test that invalid source numbers are ignored - and, since the
+    2026-08-15 citation-integrity fix, actually removed from the returned
+    answer text too (not just dropped from cited_chunks while the dangling
+    marker stays in the text - the original defect)."""
     with patch("alphasignal.generation.generator.OpenAI"):
         generator = RAGGenerator(test_config)
 
         # Answer with invalid source numbers
         answer = "Revenue grew [Source 0] significantly [Source 99]."
 
-        _, cited_chunks = generator._parse_citations(answer, test_chunks)
+        cleaned_answer, cited_chunks = generator._parse_citations(answer, test_chunks)
 
         # Should not include any chunks (both indices out of range)
         assert len(cited_chunks) == 0
+        # The dangling, unresolvable markers must not survive into the
+        # returned answer text - every [Source N] in the text must resolve.
+        assert "[Source 0]" not in cleaned_answer
+        assert "[Source 99]" not in cleaned_answer
+
+
+def test_rag_generator_single_citation(test_config, test_chunks):
+    """One cited source: the simplest case."""
+    with patch("alphasignal.generation.generator.OpenAI"):
+        generator = RAGGenerator(test_config)
+        answer = "Revenue grew to $394.3 billion [Source 1]."
+
+        cleaned_answer, cited_chunks = generator._parse_citations(answer, test_chunks)
+
+        assert cleaned_answer == answer
+        assert len(cited_chunks) == 1
+        assert cited_chunks[0].chunk_id == test_chunks[0].chunk_id
+
+
+def test_rag_generator_several_citations_out_of_order_are_renumbered(
+    test_config, test_chunks
+):
+    """Several cited sources, referenced OUT OF ORDER in the text (e.g. the
+    model cites Source 3 before Source 1) - must be renumbered so
+    cited_chunks[i] always corresponds to the text's rewritten [Source i+1],
+    a real invariant rather than incidentally true only when the model
+    happens to cite sources in ascending order."""
+    with patch("alphasignal.generation.generator.OpenAI"):
+        generator = RAGGenerator(test_config)
+        answer = "Litigation risk is noted [Source 3], driven by growth [Source 1]."
+
+        cleaned_answer, cited_chunks = generator._parse_citations(answer, test_chunks)
+
+        assert len(cited_chunks) == 2
+        # First-appearance order in the (renumbered) text: Source 3 -> new 1, Source 1 -> new 2.
+        assert cited_chunks[0].chunk_id == test_chunks[2].chunk_id
+        assert cited_chunks[1].chunk_id == test_chunks[0].chunk_id
+        assert "[Source 1]" in cleaned_answer
+        assert "[Source 2]" in cleaned_answer
+        assert "[Source 3]" not in cleaned_answer  # renumbered away, not left stale
+
+        # The core invariant: every [Source N] in the cleaned text resolves.
+        import re
+
+        for n in re.findall(r"\[Source (\d+)\]", cleaned_answer):
+            assert int(n) <= len(cited_chunks)
+
+
+def test_rag_generator_mixed_valid_and_out_of_range_citations(test_config, test_chunks):
+    """A generated reference beyond the available source count, mixed with
+    valid ones: the reproduction of the original bug report (text like
+    "[Source 1] ... [Source 5]" with fewer than 5 real sources) - the
+    out-of-range marker must be removed, valid ones kept and renumbered."""
+    with patch("alphasignal.generation.generator.OpenAI"):
+        generator = RAGGenerator(test_config)
+        answer = (
+            "Revenue grew [Source 1], driven by services [Source 2], "
+            "per the analyst note [Source 5]."
+        )
+
+        cleaned_answer, cited_chunks = generator._parse_citations(answer, test_chunks)
+
+        assert len(cited_chunks) == 2
+        assert cited_chunks[0].chunk_id == test_chunks[0].chunk_id
+        assert cited_chunks[1].chunk_id == test_chunks[1].chunk_id
+        assert "[Source 5]" not in cleaned_answer
+        assert "[Source 1]" in cleaned_answer and "[Source 2]" in cleaned_answer
+
+
+def test_rag_generator_malformed_source_marker_left_untouched(test_config, test_chunks):
+    """A malformed marker (non-numeric) doesn't match the citation regex at
+    all - it's plain prose to this parser, left alone rather than crashing
+    or being misinterpreted."""
+    with patch("alphasignal.generation.generator.OpenAI"):
+        generator = RAGGenerator(test_config)
+        answer = "Revenue grew [Source A] according to the filing [Source 1]."
+
+        cleaned_answer, cited_chunks = generator._parse_citations(answer, test_chunks)
+
+        assert "[Source A]" in cleaned_answer  # untouched, not a valid pattern match
+        assert len(cited_chunks) == 1
+        assert cited_chunks[0].chunk_id == test_chunks[0].chunk_id
 
 
 def test_rag_generator_handles_empty_chunks(test_config):

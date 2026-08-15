@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 _EVAL_DIR = Path(__file__).parent
-_GOLDEN_SET_PATH = _EVAL_DIR / "golden_set.json"
+_GOLDEN_SET_PATH = _EVAL_DIR / "sentiment_golden_set.json"
 _RESULTS_DIR = _EVAL_DIR  # save results alongside the golden set
 
 
@@ -143,6 +143,7 @@ def _compute_5d_forward_return(
 def _fetch_predicted_sentiment(
     ticker: str,
     event_description: str,
+    event_date: str,
     base_url: str = "http://localhost:8000",
     timeout: int = 60,
     api_key: Optional[str] = None,
@@ -153,10 +154,18 @@ def _fetch_predicted_sentiment(
 
     The endpoint returns a SentimentResponse with a latest_score float in [-1, 1].
     We map: score > 0.1 -> positive, score < -0.1 -> negative, else -> neutral.
+
+    Passes date_to=event_date so this scores sentiment as of the event, not
+    whatever the ticker's latest ingested sentiment happens to be today (the
+    /sentiment/{ticker} route has no 'query' param - a previous version of
+    this function sent one and it was silently ignored by FastAPI, so every
+    call here returned today's latest_score regardless of event_date,
+    comparing a historical event's expected sentiment against unrelated,
+    much-more-recent data. Audit finding, 2026-08-15.)
     """
     from urllib.parse import quote
 
-    url = f"{base_url}/sentiment/{ticker}?query={quote(event_description)}"
+    url = f"{base_url}/sentiment/{ticker}?date_to={quote(event_date)}"
     headers = {"Accept": "application/json"}
     if api_key:
         headers["X-API-Key"] = api_key
@@ -400,7 +409,9 @@ def run_evaluation(
     attempts to call the sentiment API, then prints and saves results.
 
     Args:
-        golden_set_path: Path to golden_set.json. Defaults to the bundled file.
+        golden_set_path: Path to sentiment_golden_set.json. Defaults to the
+            bundled file (not the unrelated retrieval golden set at
+            evaluation/retrieval_golden_set.json, read only by benchmark.py).
         api_base_url: Base URL for the AlphaSignal API.
         save_results: Whether to save results to eval_results_{date}.json.
         api_key: X-API-Key to send if the target API has ALPHASIGNAL_API_KEY
@@ -458,6 +469,7 @@ def run_evaluation(
         predicted_sentiment = _fetch_predicted_sentiment(
             ticker=ticker,
             event_description=event_description,
+            event_date=event_date_str,
             base_url=api_base_url,
             api_key=api_key,
         )

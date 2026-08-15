@@ -130,6 +130,59 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
     }
 
 
+def load_and_validate_retrieval_golden_set(golden_set_path: Path) -> list[dict]:
+    """Load the retrieval golden set and validate it's actually usable.
+
+    Deliberately a plain file-in/list-out function (no printing, no config
+    loading) so it's unit-testable in isolation - see
+    tests/test_benchmark_golden_set.py. Distinct from
+    alphasignal/evaluation/sentiment_golden_set.json (the sentiment quality
+    eval's own dataset, read only by evaluation/run_eval.py) - files
+    renamed 2026-08-15 (FINAL_ENGINEERING_AUDIT.md remediation item 4) so
+    the two unrelated evaluation concepts can't be confused for one shared
+    file again, even though the two scripts already resolved to different
+    paths (project_root vs run_eval.py's own directory).
+
+    Raises:
+        FileNotFoundError: golden_set_path doesn't exist.
+        ValueError: the file exists but is malformed (an entry missing
+            'relevant_chunk_ids') or unannotated (every entry's
+            relevant_chunk_ids is empty, so no metric could ever be
+            anything but a meaningless 0.0 - reporting that as a real
+            benchmark result would be exactly the kind of fabricated
+            finding this project must not produce).
+    """
+    if not golden_set_path.exists():
+        raise FileNotFoundError(
+            "Retrieval benchmark cannot run: no annotated retrieval golden "
+            f"set is available (expected at {golden_set_path})."
+        )
+
+    with open(golden_set_path) as f:
+        golden_set = json.load(f)
+
+    for entry in golden_set:
+        if "relevant_chunk_ids" not in entry:
+            raise ValueError(
+                "Retrieval benchmark cannot run: golden set entry "
+                f"{entry.get('id', entry)!r} is missing 'relevant_chunk_ids' "
+                "- malformed retrieval golden set schema."
+            )
+
+    annotated = [q for q in golden_set if q.get("relevant_chunk_ids")]
+    if not annotated:
+        raise ValueError(
+            "Retrieval benchmark cannot run: no annotated retrieval golden "
+            f"set is available - all {len(golden_set)} questions in "
+            f"{golden_set_path.name} have empty relevant_chunk_ids. Run "
+            "annotate_golden_set.py first; until then, any MRR/NDCG/Hit@k "
+            "numbers from this script would be meaningless zeros, not a "
+            "real measurement of retrieval quality."
+        )
+
+    return golden_set
+
+
 def main():
     """Run benchmarks across all configurations."""
     print("=" * 80)
@@ -140,19 +193,15 @@ def main():
     # Load configuration
     config = load_config(project_root)
 
-    # Check for golden set
-    golden_set_path = project_root / "evaluation" / "golden_set.json"
-    if not golden_set_path.exists():
-        print(f"ERROR: Golden set not found at {golden_set_path}")
-        print("Please create the golden set first.")
+    golden_set_path = project_root / "evaluation" / "retrieval_golden_set.json"
+    try:
+        golden_set = load_and_validate_retrieval_golden_set(golden_set_path)
+    except (FileNotFoundError, ValueError) as e:
+        print(str(e))
         return
-
-    with open(golden_set_path) as f:
-        golden_set = json.load(f)
 
     print(f"Loaded golden set with {len(golden_set)} questions")
 
-    # Check annotations
     annotated = [q for q in golden_set if q.get("relevant_chunk_ids")]
     if len(annotated) < len(golden_set):
         print(

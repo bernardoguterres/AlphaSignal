@@ -32,7 +32,7 @@ def annotate():
     config = load_config(project_root)
 
     # Load golden set
-    golden_set_path = project_root / "evaluation" / "golden_set.json"
+    golden_set_path = project_root / "evaluation" / "retrieval_golden_set.json"
     with open(golden_set_path) as f:
         golden_set = json.load(f)
 
