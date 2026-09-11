@@ -361,6 +361,78 @@ def test_chunk_text_merges_short_trailing_sentence_instead_of_dropping(chunker):
     ), "Short trailing sentence must appear in the output, not be silently dropped"
 
 
+def test_chunk_text_normal_boundary_uses_target_tokens(chunker):
+    """target_tokens (< max_tokens) drives the *normal* chunk boundary: a
+    non-final chunk should stop near target_tokens rather than growing all
+    the way to max_tokens, when there's enough text to make the difference
+    observable."""
+    chunker.target_tokens = 100
+    chunker.max_tokens = 400
+    chunker.min_tokens = 20
+    chunker.overlap_tokens = 10
+
+    sentence = (
+        "The company reported quarterly revenue growth across all major "
+        "business segments and geographic regions this period. "
+    )
+    text = sentence * 30  # far more than one target-sized chunk's worth
+
+    chunks = chunker.chunk_text(text)
+
+    assert len(chunks) >= 2, "Should produce multiple chunks"
+    # Every non-final chunk should be close to target_tokens, not grown out
+    # to max_tokens - i.e. target_tokens must have a real, distinct effect.
+    for c in chunks[:-1]:
+        tokens = chunker.count_tokens(c)
+        assert tokens <= chunker.max_tokens
+        assert tokens <= chunker.target_tokens + chunker.count_tokens(sentence), (
+            f"Non-final chunk has {tokens} tokens - boundary did not "
+            f"respect target_tokens ({chunker.target_tokens})"
+        )
+
+
+def test_chunk_text_target_tokens_capped_by_max_tokens(chunker):
+    """If target_tokens is configured larger than max_tokens (or an
+    override sets max_tokens below the fixture's target_tokens, as several
+    existing tests do), max_tokens must still win as the hard ceiling -
+    target_tokens must never let a chunk exceed it."""
+    chunker.target_tokens = 300  # fixture default, left untouched
+    chunker.max_tokens = 50
+    chunker.min_tokens = 5  # avoid the documented trailing-chunk merge
+    chunker.overlap_tokens = 10
+
+    sentences = [
+        "This sentence discusses corporate strategy and market positioning in detail today."
+        for _ in range(10)
+    ]
+    text = " ".join(sentences)
+
+    chunks = chunker.chunk_text(text)
+
+    for c in chunks:
+        assert chunker.count_tokens(c) <= chunker.max_tokens
+
+
+def test_chunk_text_target_tokens_unset_falls_back_to_max_tokens(chunker):
+    """target_tokens <= 0 (unconfigured) must not shrink chunks - boundary
+    behavior falls back to the max_tokens-only behavior."""
+    chunker.target_tokens = 0
+    chunker.max_tokens = 60
+    chunker.min_tokens = 10
+    chunker.overlap_tokens = 5
+
+    sentences = [
+        "Quarterly results showed continued strength across all reporting segments."
+        for _ in range(8)
+    ]
+    text = " ".join(sentences)
+
+    chunks = chunker.chunk_text(text)
+
+    for c in chunks:
+        assert chunker.count_tokens(c) <= chunker.max_tokens
+
+
 def test_count_tokens_consistent_with_tiktoken(chunker):
     """Test that count_tokens returns expected values."""
     # Test known token counts

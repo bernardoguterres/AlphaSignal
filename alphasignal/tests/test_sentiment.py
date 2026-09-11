@@ -242,6 +242,102 @@ def test_sentiment_extractor_ordinary_out_of_range_score_still_clamps(
         assert result.summary != "Invalid score from provider"
 
 
+def test_sentiment_extractor_genuine_neutral_is_reliable(test_config, test_chunk):
+    """A genuine neutral prediction from the provider (score=0.0 returned
+    as real JSON, not a fallback) must be marked reliable."""
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps(
+            {
+                "score": 0.0,
+                "confidence": 0.55,
+                "key_positive": [],
+                "key_negative": [],
+                "summary": "Balanced, no clear directional sentiment.",
+            }
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        MockOpenAI.return_value = mock_client
+
+        extractor = SentimentExtractor(test_config)
+        result = extractor.extract_sentiment(test_chunk)
+
+        assert result.score == 0.0
+        assert result.reliable is True
+
+
+def test_sentiment_extractor_json_parse_failure_is_unreliable(test_config, test_chunk):
+    """A provider response that can't be parsed as JSON must be flagged
+    unreliable, not presented as an equally-valid neutral prediction."""
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "not json at all"
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        MockOpenAI.return_value = mock_client
+
+        extractor = SentimentExtractor(test_config)
+        result = extractor.extract_sentiment(test_chunk)
+
+        assert result.score == 0.0
+        assert result.reliable is False
+
+
+def test_sentiment_extractor_nan_score_is_unreliable(test_config, test_chunk):
+    """The NaN-guard fallback result must also be flagged unreliable."""
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = (
+            '{"score": NaN, "confidence": 0.9, "key_positive": [], '
+            '"key_negative": [], "summary": "test"}'
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        MockOpenAI.return_value = mock_client
+
+        extractor = SentimentExtractor(test_config)
+        result = extractor.extract_sentiment(test_chunk)
+
+        assert result.reliable is False
+
+
+def test_sentiment_extractor_api_exception_is_unreliable(test_config, test_chunk):
+    """An unhandled provider exception during extraction must also produce
+    an unreliable fallback result, not a genuine-looking neutral one."""
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = RuntimeError("provider down")
+        MockOpenAI.return_value = mock_client
+
+        extractor = SentimentExtractor(test_config)
+        result = extractor.extract_sentiment(test_chunk)
+
+        assert result.score == 0.0
+        assert result.reliable is False
+
+
+def test_extract_ticker_sentiment_propagates_reliable_flag(test_config, test_chunk):
+    """extract_ticker_sentiment's SentimentSignal output must carry the
+    per-chunk reliable flag through from the SentimentResult."""
+    with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "unparseable garbage"
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        MockOpenAI.return_value = mock_client
+
+        extractor = SentimentExtractor(test_config)
+        signals = extractor.extract_ticker_sentiment("AAPL", [test_chunk])
+
+        assert len(signals) == 1
+        assert signals[0].reliable is False
+
+
 def test_extract_ticker_sentiment_returns_most_recent(test_config, test_chunks):
     """Test that extract_ticker_sentiment returns at most 10 most recent chunks."""
     with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:

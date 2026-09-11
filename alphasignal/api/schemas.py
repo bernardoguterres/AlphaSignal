@@ -1,6 +1,7 @@
 """Pydantic models for AlphaSignal API requests and responses."""
 
 from datetime import date
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -67,6 +68,10 @@ class SentimentSignal(BaseModel):
     key_positive: list[str]
     key_negative: list[str]
     summary: str
+    # False when this signal came from a provider/parsing fallback rather
+    # than a genuine chunk-level prediction (additive field, defaults True
+    # so existing consumers reading only score/confidence are unaffected).
+    reliable: bool = True
 
 
 class SentimentResponse(BaseModel):
@@ -85,6 +90,29 @@ class SentimentResponse(BaseModel):
     # needs a separate, cross-repo follow-up to actually consume it; until
     # then this field exists but doesn't change AlphaLive's behavior.
     data_available: bool = True
+    # --- Degradation-visibility fields (2026-09-11) ---
+    # All additive with backward-compatible defaults. Same AlphaLive caveat
+    # as data_available above: not consumed cross-repo yet.
+    #
+    # "ok"       - genuine extraction result (including genuine neutral)
+    # "no_data"  - no chunks were ingested for this ticker (data_available=False)
+    # "degraded" - at least one chunk-level extraction fell back to a
+    #              provider/parsing default instead of a real prediction
+    # A Literal (not a bare str) so the finite set of valid values is a
+    # structural, Pydantic-enforced guarantee - not just a documented
+    # convention - and shows up as an enum in the generated OpenAPI schema.
+    status: Literal["ok", "no_data", "degraded"] = "ok"
+    degraded: bool = False
+    # Categorical only, by construction (route code always passes a fixed
+    # literal here, never str(exception)) - must never carry raw exception
+    # text, stack traces, or provider/credential details.
+    degradation_reason: (
+        Literal["partial_extraction_failure", "full_extraction_failure"] | None
+    ) = None
+    # Chunks whose sentiment came from a genuine model prediction, out of
+    # all chunks considered for this response.
+    reliable_chunk_count: int = 0
+    total_chunk_count: int = 0
 
 
 class IngestResponse(BaseModel):

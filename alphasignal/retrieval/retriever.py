@@ -130,7 +130,83 @@ class HybridRetriever:
         # Search vector store
         results = self.vector_store.search(query_embedding, k=k, filter_ids=filter_ids)
 
-        return results
+        return self._exclude_stale_dense_hits(results)
+
+    def _exclude_stale_dense_hits(
+        self, results: list[tuple[str, float]]
+    ) -> list[tuple[str, float]]:
+        """Exclude a dense hit whose FAISS vector is not verifiably current.
+
+        Two distinct cases, both excluded (audit correction, 2026-09-11
+        follow-up pass):
+
+        1. KNOWN MISMATCH - the vector's recorded content_hash disagrees
+           with the chunk's current SQLite content_hash. FAISS holds only
+           vectors, SQLite holds only text/metadata - if an interrupted
+           content-replacement (or a rolled-back ingestion) leaves them
+           representing different generations of the same chunk_id, the
+           retriever would otherwise rank a candidate by a vector computed
+           from one text and return a completely different (current) text
+           as if it were the match.
+
+        2. UNKNOWN PROVENANCE - the vector has no recorded content_hash at
+           all (vector_hash == ""). This is not "no evidence of a
+           problem," it's "no evidence of anything" - most commonly a
+           legacy FAISS index migrated into the generation+manifest layout
+           (VectorStore._migrate_legacy_if_present) whose entries predate
+           content_hash tracking entirely, or a vector added via the
+           identity-only VectorStore.add() fallback (no content_hashes
+           argument - never used by the production ingestion path, see
+           IngestionPipeline.store_chunks). An earlier version of this
+           method only excluded case 1, silently trusting hashless vectors
+           as if their similarity to the query were verified evidence.
+           They are not: nothing has ever confirmed they were computed
+           from the chunk's current (or any specific) text.
+
+        BM25/sparse search is unaffected - it always re-reads current
+        SQLite text directly (see build_bm25_index), so a chunk excluded
+        here can still surface via BM25 on its own merits, just without
+        borrowing similarity evidence from an unverified dense vector
+        (_merge_results treats a chunk_id missing from dense_results as
+        dense_score=0.0, not as a missing/failed lookup).
+
+        Idempotent re-ingestion (a real content_hash + a freshly generated
+        embedding, via IngestionPipeline.store_chunks) is the repair path
+        for both cases: once the vector is replaced and its hash recorded,
+        the chunk stops being excluded on its own. No data is deleted here
+        - exclusion is a query-time filter, not a mutation.
+        """
+        filtered = []
+        for chunk_id, score in results:
+            vector_hash = self.vector_store.content_hashes.get(chunk_id, "")
+            if not vector_hash:
+                # Never log document text/content - chunk_id and the fact
+                # of unknown provenance are safe, actionable diagnostics;
+                # the text itself is not.
+                logger.warning(
+                    "Excluding chunk_id=%s from dense results: FAISS vector "
+                    "has no known content_hash (unverified/legacy "
+                    "provenance) - re-run ingestion for this source to "
+                    "restore dense retrieval.",
+                    chunk_id,
+                )
+                continue
+            chunk = self.metadata_store.get_chunk(chunk_id)
+            if (
+                chunk is not None
+                and chunk.content_hash
+                and chunk.content_hash != vector_hash
+            ):
+                logger.warning(
+                    "Excluding chunk_id=%s from dense results: FAISS "
+                    "vector content_hash does not match current SQLite "
+                    "content_hash (stale or interrupted replacement) - "
+                    "re-run ingestion for this source to repair.",
+                    chunk_id,
+                )
+                continue
+            filtered.append((chunk_id, score))
+        return filtered
 
     def _sparse_search(
         self,

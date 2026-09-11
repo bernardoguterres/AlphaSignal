@@ -1,5 +1,6 @@
 """Integration tests for API endpoints."""
 
+import itertools
 import json
 from datetime import date
 from unittest.mock import MagicMock, patch
@@ -264,6 +265,32 @@ def test_query_endpoint_handles_empty_retrieval(client):
         data = response.json()
         assert "No relevant information" in data["answer"]
         assert len(data["citations"]) == 0
+
+
+def test_query_endpoint_unknown_ticker_filter_is_not_404(client):
+    """Deliberate policy: ticker_filter is a search filter, not a resource
+    identifier, so an unrecognized value must behave like any other filter
+    that excludes everything (200, empty citations) - not a 404, unlike
+    /sentiment/{ticker} and /ingest/{ticker}."""
+    with patch.object(
+        client.app.state.app_state.retriever, "retrieve"
+    ) as mock_retrieve:
+        mock_retrieve.return_value = []
+
+        response = client.post(
+            "/query/",
+            json={
+                "query": "What is Zzzz revenue?",
+                "ticker_filter": "ZZZZ",
+                "top_k": 5,
+            },
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()["citations"]) == 0
+        # The unvalidated ticker_filter was still passed straight through
+        # to the retriever, not silently dropped.
+        assert mock_retrieve.call_args.kwargs["ticker"] == "ZZZZ"
 
 
 def test_sentiment_endpoint_returns_200(client):
@@ -550,6 +577,482 @@ def test_sentiment_endpoint_propagates_errors(client):
         client.app.state.app_state.metrics_collector.get_summary()["errors"]["count"]
         == 1
     )
+
+
+def _sentiment_signal(score, confidence, reliable, day=1):
+    from alphasignal.api.schemas import SentimentSignal
+
+    return SentimentSignal(
+        ticker="AAPL",
+        date=date(2024, 1, day),
+        score=score,
+        confidence=confidence,
+        source="SEC EDGAR",
+        doc_type="10-K",
+        key_positive=[],
+        key_negative=[],
+        summary="test",
+        reliable=reliable,
+    )
+
+
+def test_sentiment_endpoint_genuine_neutral_is_ok_not_degraded(client):
+    """A real, reliable score of 0.0 is a valid successful result - not
+    degraded, and distinct from 'no data' (data_available stays True)."""
+    from alphasignal.ingestion import Chunk
+
+    mock_chunk = Chunk(
+        chunk_id="aapl_neutral_0001",
+        ticker="AAPL",
+        text="Results were in line with expectations.",
+        token_count=10,
+        doc_type="10-K",
+        source="SEC EDGAR",
+        section="item_7",
+        date=date(2024, 1, 1),
+        url=None,
+        chunk_index=0,
+        total_chunks=1,
+    )
+    neutral_signal = _sentiment_signal(score=0.0, confidence=0.6, reliable=True)
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=[mock_chunk],
+    ), patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=[neutral_signal],
+    ):
+        response = client.get("/sentiment/AAPL")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data_available"] is True
+    assert data["status"] == "ok"
+    assert data["degraded"] is False
+    assert data["degradation_reason"] is None
+    assert data["latest_score"] == 0.0
+    assert data["reliable_chunk_count"] == 1
+    assert data["total_chunk_count"] == 1
+
+
+def test_sentiment_endpoint_partial_degradation_visible(client):
+    """One failed chunk plus reliable chunks must be explicitly flagged as
+    degraded, while still surfacing the latest reliable prediction."""
+    from alphasignal.ingestion import Chunk
+
+    chunks = [
+        Chunk(
+            chunk_id=f"aapl_mixed_{i:04d}",
+            ticker="AAPL",
+            text=f"Chunk {i}",
+            token_count=10,
+            doc_type="10-K",
+            source="SEC EDGAR",
+            section="item_7",
+            date=date(2024, 1, 1 + i),
+            url=None,
+            chunk_index=i,
+            total_chunks=2,
+        )
+        for i in range(2)
+    ]
+    signals = [
+        _sentiment_signal(
+            score=0.4, confidence=0.7, reliable=True, day=2
+        ),  # most recent
+        _sentiment_signal(score=0.0, confidence=0.0, reliable=False, day=1),
+    ]
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=chunks,
+    ), patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=signals,
+    ):
+        response = client.get("/sentiment/AAPL")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert data["degraded"] is True
+    assert data["degradation_reason"] == "partial_extraction_failure"
+    # The reliable prediction is preserved, not discarded.
+    assert data["latest_score"] == 0.4
+    assert data["reliable_chunk_count"] == 1
+    assert data["total_chunk_count"] == 2
+    assert len(data["signals"]) == 2
+
+
+def test_sentiment_endpoint_full_degradation_does_not_masquerade_as_neutral(client):
+    """When every chunk-level extraction failed, latest_score must be None
+    - never fabricated as 0.0 - and the response must say so explicitly."""
+    from alphasignal.ingestion import Chunk
+
+    mock_chunk = Chunk(
+        chunk_id="aapl_alldegraded_0001",
+        ticker="AAPL",
+        text="Some filing text.",
+        token_count=10,
+        doc_type="10-K",
+        source="SEC EDGAR",
+        section="item_7",
+        date=date(2024, 1, 1),
+        url=None,
+        chunk_index=0,
+        total_chunks=1,
+    )
+    failed_signal = _sentiment_signal(score=0.0, confidence=0.0, reliable=False)
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=[mock_chunk],
+    ), patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=[failed_signal],
+    ):
+        response = client.get("/sentiment/AAPL")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert data["degraded"] is True
+    assert data["degradation_reason"] == "full_extraction_failure"
+    assert (
+        data["latest_score"] is None
+    ), "A fully-failed extraction must not fabricate a 0.0 neutral score"
+    assert data["reliable_chunk_count"] == 0
+    assert data["total_chunk_count"] == 1
+
+
+def test_sentiment_endpoint_no_data_still_distinguishable_from_degraded(client):
+    """No ingested chunks at all remains its own distinct state, separate
+    from a degraded extraction over real data."""
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=[],
+    ):
+        response = client.get("/sentiment/AAPL")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data_available"] is False
+    assert data["status"] == "no_data"
+    assert data["degraded"] is False
+    assert data["latest_score"] is None
+
+
+def test_sentiment_endpoint_legacy_consumer_reading_only_old_fields_unaffected(client):
+    """A consumer that only reads the pre-existing fields (score, sources,
+    confidence via signals, latency, data_available) must keep working
+    unmodified - the new fields are purely additive."""
+    from alphasignal.ingestion import Chunk
+
+    mock_chunk = Chunk(
+        chunk_id="aapl_legacy_0001",
+        ticker="AAPL",
+        text="Legacy consumer chunk.",
+        token_count=10,
+        doc_type="10-K",
+        source="SEC EDGAR",
+        section="item_7",
+        date=date(2024, 1, 1),
+        url=None,
+        chunk_index=0,
+        total_chunks=1,
+    )
+    signal = _sentiment_signal(score=0.3, confidence=0.6, reliable=True)
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=[mock_chunk],
+    ), patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=[signal],
+    ):
+        response = client.get("/sentiment/AAPL")
+
+    data = response.json()
+    # Legacy field set, exactly as before this change.
+    legacy_view = {
+        "ticker": data["ticker"],
+        "latest_score": data["latest_score"],
+        "latency_ms": data["latency_ms"] >= 0,
+        "data_available": data["data_available"],
+        "signal_count": len(data["signals"]),
+        "signal_score": data["signals"][0]["score"],
+        "signal_confidence": data["signals"][0]["confidence"],
+        "signal_source": data["signals"][0]["source"],
+    }
+    assert legacy_view == {
+        "ticker": "AAPL",
+        "latest_score": 0.3,
+        "latency_ms": True,
+        "data_available": True,
+        "signal_count": 1,
+        "signal_score": 0.3,
+        "signal_confidence": 0.6,
+        "signal_source": "SEC EDGAR",
+    }
+
+
+class TestSentimentContractInvariants:
+    """Property-style verification of the sentiment response contract
+    (objective 5 of the 2026-09-11 persistence/contract-verification pass).
+
+    Drives GET /sentiment/{ticker} through every combination of reliable/
+    unreliable per-chunk signals up to a small size, and asserts the
+    response-level invariants hold for all of them - not just the
+    hand-picked examples in the earlier degradation tests above.
+    """
+
+    def _signals_for_flags(self, reliable_flags):
+        return [
+            _sentiment_signal(
+                score=0.4 if reliable else 0.0,
+                confidence=0.7 if reliable else 0.0,
+                reliable=reliable,
+                day=i + 1,
+            )
+            for i, reliable in enumerate(reliable_flags)
+        ]
+
+    @pytest.mark.parametrize(
+        "reliable_flags",
+        [
+            combo
+            for n in range(1, 5)
+            for combo in itertools.product([True, False], repeat=n)
+        ],
+    )
+    def test_invariants_hold_for_every_reliability_combination(
+        self, client, reliable_flags
+    ):
+        from alphasignal.ingestion import Chunk
+
+        signals = self._signals_for_flags(list(reliable_flags))
+        chunks = [
+            Chunk(
+                chunk_id=f"aapl_inv_{i:04d}",
+                ticker="AAPL",
+                text=f"chunk {i}",
+                token_count=5,
+                doc_type="10-K",
+                source="SEC EDGAR",
+                section="item_7",
+                date=date(2024, 1, 1),
+                url=None,
+                chunk_index=i,
+                total_chunks=len(signals),
+            )
+            for i in range(len(signals))
+        ]
+
+        with patch.object(
+            client.app.state.app_state.pipeline.metadata_store,
+            "get_chunks_by_ticker",
+            return_value=chunks,
+        ), patch.object(
+            client.app.state.app_state.sentiment_extractor,
+            "extract_ticker_sentiment",
+            return_value=signals,
+        ):
+            response = client.get("/sentiment/AAPL")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # status values are explicit and finite
+        assert data["status"] in {"ok", "no_data", "degraded"}
+
+        # data_available=false implies latest_score is null (not reachable
+        # in this test - chunks always exist here - covered by the
+        # dedicated no-data test below; asserted again for completeness)
+        if not data["data_available"]:
+            assert data["latest_score"] is None
+
+        # reliable_chunk_count never exceeds total_chunk_count
+        assert data["reliable_chunk_count"] <= data["total_chunk_count"]
+        assert data["total_chunk_count"] == len(reliable_flags)
+        assert data["reliable_chunk_count"] == sum(reliable_flags)
+
+        # fully degraded output cannot report a positive reliable count,
+        # and must never fabricate a score
+        if data["reliable_chunk_count"] == 0:
+            assert data["status"] == "degraded"
+            assert data["degradation_reason"] == "full_extraction_failure"
+            assert data["latest_score"] is None
+            assert data["degraded"] is True
+        elif data["reliable_chunk_count"] < data["total_chunk_count"]:
+            assert data["status"] == "degraded"
+            assert data["degradation_reason"] == "partial_extraction_failure"
+            assert data["degraded"] is True
+            assert data["latest_score"] is not None
+        else:
+            assert data["status"] == "ok"
+            assert data["degraded"] is False
+            assert data["degradation_reason"] is None
+            assert data["latest_score"] is not None
+
+        # degradation_reason is categorical only - never raw exception text
+        if data["degradation_reason"] is not None:
+            assert data["degradation_reason"] in {
+                "partial_extraction_failure",
+                "full_extraction_failure",
+            }
+
+        # legacy field types/meanings preserved
+        assert isinstance(data["ticker"], str)
+        assert isinstance(data["latency_ms"], int)
+        assert isinstance(data["data_available"], bool)
+        assert data["latest_score"] is None or isinstance(data["latest_score"], float)
+        for sig in data["signals"]:
+            assert isinstance(sig["score"], float)
+            assert -1.0 <= sig["score"] <= 1.0
+            assert isinstance(sig["confidence"], float)
+            assert 0.0 <= sig["confidence"] <= 1.0
+            assert isinstance(sig["reliable"], bool)
+
+    def test_no_data_implies_latest_score_null_and_status_no_data(self, client):
+        with patch.object(
+            client.app.state.app_state.pipeline.metadata_store,
+            "get_chunks_by_ticker",
+            return_value=[],
+        ):
+            response = client.get("/sentiment/AAPL")
+
+        data = response.json()
+        assert data["data_available"] is False
+        assert data["latest_score"] is None
+        assert data["status"] == "no_data"
+
+    def test_openapi_schema_generation_succeeds_and_status_is_enum(self, client):
+        """Serialization sanity: the app must be able to generate its
+        OpenAPI schema with the new Literal-typed fields, and status must
+        show up as a real enum, not a bare string."""
+        schema = client.app.openapi()
+        sentiment_response_schema = schema["components"]["schemas"]["SentimentResponse"]
+        status_schema = sentiment_response_schema["properties"]["status"]
+        # Pydantic v2 emits enum constraints via allOf/$ref or inline enum
+        # depending on version; either way "ok"/"no_data"/"degraded" must
+        # appear somewhere in the schema for this field.
+        schema_str = json.dumps(status_schema) + json.dumps(schema.get("$defs", {}))
+        assert "no_data" in schema_str
+        assert "degraded" in schema_str
+
+    def test_json_serialization_represents_null_and_bool_correctly(self, client):
+        """Raw JSON text sanity check: null must serialize as JSON `null`,
+        not the string "None" or 0."""
+        with patch.object(
+            client.app.state.app_state.pipeline.metadata_store,
+            "get_chunks_by_ticker",
+            return_value=[],
+        ):
+            response = client.get("/sentiment/AAPL")
+
+        assert '"latest_score":null' in response.text.replace(" ", "")
+        assert '"data_available":false' in response.text.replace(" ", "")
+
+
+def test_sentiment_summary_uses_only_reliable_signals_for_avg_and_trend(client):
+    """The /summary endpoint's aggregate score/trend must exclude
+    unreliable (fallback) signals - mixing them in would silently pull the
+    average toward neutral for reasons unrelated to actual sentiment."""
+    signals = [
+        _sentiment_signal(score=0.8, confidence=0.9, reliable=True, day=3),
+        _sentiment_signal(score=0.0, confidence=0.0, reliable=False, day=2),
+        _sentiment_signal(score=0.6, confidence=0.85, reliable=True, day=1),
+    ]
+    from alphasignal.ingestion import Chunk
+
+    chunks = [
+        Chunk(
+            chunk_id=f"aapl_summary_{i:04d}",
+            ticker="AAPL",
+            text=f"chunk {i}",
+            token_count=5,
+            doc_type="10-K",
+            source="SEC EDGAR",
+            section="item_7",
+            date=date(2024, 1, 1),
+            url=None,
+            chunk_index=i,
+            total_chunks=3,
+        )
+        for i in range(3)
+    ]
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=chunks,
+    ), patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=signals,
+    ):
+        response = client.get("/sentiment/AAPL/summary")
+
+    data = response.json()
+    # Average must be over [0.8, 0.6] only, not including the 0.0 fallback.
+    assert data["avg_score"] == pytest.approx(0.7, abs=1e-6)
+    assert data["signal_count"] == 3
+    assert data["reliable_signal_count"] == 2
+    assert data["degraded"] is True
+
+
+def test_sentiment_summary_all_unreliable_reports_degraded_no_fabricated_average(
+    client,
+):
+    signals = [
+        _sentiment_signal(score=0.0, confidence=0.0, reliable=False, day=1),
+        _sentiment_signal(score=0.0, confidence=0.0, reliable=False, day=2),
+    ]
+    from alphasignal.ingestion import Chunk
+
+    chunks = [
+        Chunk(
+            chunk_id=f"aapl_summary2_{i:04d}",
+            ticker="AAPL",
+            text=f"chunk {i}",
+            token_count=5,
+            doc_type="10-K",
+            source="SEC EDGAR",
+            section="item_7",
+            date=date(2024, 1, 1),
+            url=None,
+            chunk_index=i,
+            total_chunks=2,
+        )
+        for i in range(2)
+    ]
+
+    with patch.object(
+        client.app.state.app_state.pipeline.metadata_store,
+        "get_chunks_by_ticker",
+        return_value=chunks,
+    ), patch.object(
+        client.app.state.app_state.sentiment_extractor,
+        "extract_ticker_sentiment",
+        return_value=signals,
+    ):
+        response = client.get("/sentiment/AAPL/summary")
+
+    data = response.json()
+    assert data["avg_score"] is None
+    assert data["trend"] == "unknown"
+    assert data["degraded"] is True
+    assert data["reliable_signal_count"] == 0
 
 
 def test_sentiment_summary_no_chunks(client):

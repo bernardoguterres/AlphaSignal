@@ -96,10 +96,19 @@ def hybrid_retriever(test_config, test_chunks, tmp_path):
 
         embedder.embed_texts = mock_embed_texts
 
-    # Generate embeddings for all chunks and add to vector store
+    # Generate embeddings for all chunks and add to vector store, WITH each
+    # chunk's real content_hash - matching the one production ingestion
+    # path (IngestionPipeline.store_chunks), which always supplies one.
+    # Without this, every dense hit would be an unknown-provenance vector
+    # that HybridRetriever now excludes at query time (see
+    # HybridRetriever._exclude_stale_dense_hits), silently degrading these
+    # tests to sparse-only retrieval instead of actually exercising the
+    # dense path they're meant to test (audit correction, 2026-09-11
+    # follow-up pass).
     embeddings = np.random.rand(len(test_chunks), 1536).astype(np.float32)
     chunk_ids = [chunk.chunk_id for chunk in test_chunks]
-    vector_store.add(embeddings, chunk_ids)
+    content_hashes = {chunk.chunk_id: chunk.content_hash for chunk in test_chunks}
+    vector_store.add(embeddings, chunk_ids, content_hashes)
 
     # Create retriever
     retriever = HybridRetriever(test_config, embedder, vector_store, metadata_store)

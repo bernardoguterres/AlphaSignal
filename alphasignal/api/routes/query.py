@@ -50,6 +50,18 @@ def query(
     try:
         logger.info(f"Processing query: '{request.query[:50]}...'")
 
+        # Deliberate decision (2026-09-11): request.ticker_filter is NOT run
+        # through validate_ticker_in_config()/the 404 allowlist, unlike
+        # /sentiment/{ticker} and /ingest/{ticker}. Those paths identify a
+        # resource by ticker - an unknown one is a 404 ("no such
+        # resource"). ticker_filter is a search *filter* over a shared
+        # /query resource, not the resource identifier itself - an unknown
+        # or misspelled value is not an error, it just narrows the search
+        # to zero matches, exactly like any other filter (date_from/to)
+        # that happens to exclude everything. This keeps /query's error
+        # semantics uniform: only a 5xx for a genuine failure, otherwise
+        # always 200, with an empty citations list signaling "no matches"
+        # (see the no-results branch just below).
         # Step 1: Retrieve candidates
         retrieved_chunks = retriever.retrieve(
             query=request.query,

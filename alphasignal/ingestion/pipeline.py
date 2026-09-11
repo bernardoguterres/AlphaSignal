@@ -269,25 +269,105 @@ class IngestionPipeline:
 
         return all_chunks
 
-    def store_chunks(self, chunks: list[Chunk], embeddings: dict[str, np.ndarray]):
+    @staticmethod
+    def _source_prefix(chunk_id: str) -> str:
+        """Return the source-document identity portion of a chunk_id.
+
+        chunk_id format is `{source_prefix}_{chunk_index:04d}` (see
+        SemanticChunker.chunk_document/chunk_article) - stripping the
+        trailing `_index` isolates "which document/article this came from"
+        from "which position within it".
+        """
+        return chunk_id.rsplit("_", 1)[0]
+
+    def store_chunks(
+        self,
+        chunks: list[Chunk],
+        embeddings: dict[str, np.ndarray],
+        source_prefixes: set[str] | None = None,
+    ):
         """Store chunks and their embeddings.
+
+        Also cleans up orphaned chunks: if a source document's re-chunking
+        run (re-ingestion, changed chunking config, or fewer/differently-
+        numbered chunks from a shorter/edited document) no longer produces
+        some chunk_ids that a *previous* ingestion of the same source did,
+        those leftover chunk_ids are deleted from both SQLite and FAISS
+        rather than lingering as stale, still-searchable orphans (audit
+        finding, 2026-09-11 - no deletion path existed before this; only
+        upsert/add did).
 
         Args:
             chunks: List of Chunk objects
             embeddings: Dictionary mapping chunk_id → embedding
+            source_prefixes: Optional explicit set of source-document
+                prefixes to check for orphans, in addition to whatever
+                prefixes `chunks` itself implies. Needed for a document/
+                article that now yields ZERO chunks (e.g. all sections
+                emptied out) - store_chunks can't derive that source's
+                prefix from `chunks` alone since nothing of it is present,
+                so callers that know the full set of sources considered
+                this run (full_ingest, ingest_historical_filings) pass it
+                explicitly. Without this, a source going fully empty would
+                leave 100% of its previous chunks as permanent orphans.
         """
-        if not chunks:
+        new_chunk_ids = {chunk.chunk_id for chunk in chunks}
+
+        # Orphan detection: for every source document considered this run,
+        # find chunk_ids previously stored under that same source that this
+        # run did NOT reproduce. Computed against pre-write state, before
+        # any new records are stored, so a crash here can't have been
+        # caused by (or corrupt) the write itself.
+        #
+        # Exact-match lookup (by the persisted source_id column) is
+        # preferred wherever a source_id is known - `source_prefixes` from
+        # callers and `chunk.source_id` are both real source_id values (see
+        # SemanticChunker.document_source_prefix/article_source_prefix),
+        # never ambiguous string prefixes. Only chunks lacking a source_id
+        # entirely (constructed directly, not via SemanticChunker - e.g.
+        # some tests) fall back to the escaped chunk_id-prefix LIKE lookup.
+        exact_source_ids = set(source_prefixes) if source_prefixes else set()
+        exact_source_ids |= {c.source_id for c in chunks if c.source_id}
+        fallback_prefixes = {
+            self._source_prefix(c.chunk_id) for c in chunks if not c.source_id
+        }
+
+        orphans: set[str] = set()
+        for source_id in exact_source_ids:
+            existing = self.metadata_store.get_chunk_ids_by_source_id(source_id)
+            orphans.update(cid for cid in existing if cid not in new_chunk_ids)
+        for prefix in fallback_prefixes:
+            existing = self.metadata_store.get_chunk_ids_with_prefix(prefix)
+            orphans.update(cid for cid in existing if cid not in new_chunk_ids)
+
+        if not chunks and not orphans:
             return
 
-        # Store metadata
-        self.metadata_store.add_chunks(chunks)
+        if chunks:
+            # Store metadata
+            self.metadata_store.add_chunks(chunks)
 
-        # Prepare embeddings for vector store
-        chunk_ids = [chunk.chunk_id for chunk in chunks]
-        embeddings_array = np.array([embeddings[cid] for cid in chunk_ids])
+            # Prepare embeddings for vector store
+            chunk_ids = [chunk.chunk_id for chunk in chunks]
+            embeddings_array = np.array([embeddings[cid] for cid in chunk_ids])
+            content_hashes = {chunk.chunk_id: chunk.content_hash for chunk in chunks}
 
-        # Store embeddings
-        self.vector_store.add(embeddings_array, chunk_ids)
+            # Store embeddings - content_hashes lets the vector store tell
+            # an unchanged re-ingestion (skip) from a content change under
+            # the same chunk_id (replace the stale vector) apart from a
+            # brand new chunk_id.
+            self.vector_store.add(embeddings_array, chunk_ids, content_hashes)
+
+        # Remove orphans only after the new data (if any) is safely stored,
+        # so a failure here never deletes current data before its
+        # replacement landed.
+        if orphans:
+            self.metadata_store.delete_chunks(list(orphans))
+            self.vector_store.remove(list(orphans))
+            logger.info(
+                f"Removed {len(orphans)} orphaned chunk(s) no longer produced "
+                "by this source document"
+            )
 
         logger.info(f"Stored {len(chunks)} chunks")
 
@@ -309,16 +389,25 @@ class IngestionPipeline:
         """
         logger.info(f"Starting full ingestion pipeline for {ticker}")
 
-        # Ingest and chunk
-        chunks = self.ingest_and_chunk_ticker(
+        # Ingest (kept as separate raw_docs/articles, not just the final
+        # chunk list, so source_prefixes below can be computed even for a
+        # document/article that yields zero chunks this run)
+        raw_docs, articles = self.ingest_ticker(
             ticker, filing_types=filing_types, years_back=years_back
         )
+        doc_chunks = self.chunk_documents(raw_docs)
+        article_chunks = self.chunk_articles(articles)
+        chunks = doc_chunks + article_chunks
+
+        source_prefixes = {self.chunker.document_source_prefix(d) for d in raw_docs} | {
+            self.chunker.article_source_prefix(a) for a in articles
+        }
 
         # Embed
         embeddings = self.embedder.embed_chunks(chunks)
 
         # Store
-        self.store_chunks(chunks, embeddings)
+        self.store_chunks(chunks, embeddings, source_prefixes=source_prefixes)
 
         logger.info(
             f"Completed full ingestion pipeline for {ticker}: "
@@ -350,9 +439,12 @@ class IngestionPipeline:
 
         Safe to call repeatedly / on overlapping windows: the embedding
         cache, MetadataStore (upsert via session.merge()), and VectorStore
-        (explicit chunk_id dedup) are all idempotent on the content-derived
-        chunk_id, so re-processing an already-ingested filing costs nothing
-        extra - no wasted OpenAI calls, no duplicate vectors.
+        are all idempotent on chunk_id + content_hash, so re-processing an
+        already-ingested, unchanged filing costs nothing extra - no wasted
+        OpenAI calls, no duplicate vectors. chunk_id itself only encodes
+        *source position* (doc + section + index), not content - a filing
+        that was amended between backfill runs is detected via
+        content_hash and re-embedded/replaced, not silently skipped.
 
         Args:
             ticker: Stock ticker symbol
@@ -376,8 +468,9 @@ class IngestionPipeline:
         )
 
         chunks = self.chunk_documents(raw_docs)
+        source_prefixes = {self.chunker.document_source_prefix(d) for d in raw_docs}
         embeddings = self.embedder.embed_chunks(chunks)
-        self.store_chunks(chunks, embeddings)
+        self.store_chunks(chunks, embeddings, source_prefixes=source_prefixes)
 
         logger.info(
             f"Completed historical filings backfill for {ticker}: "

@@ -83,13 +83,43 @@ def get_sentiment(
                 latest_score=None,
                 latency_ms=latency_ms,
                 data_available=False,
+                status="no_data",
             )
 
         # Extract sentiment signals
         signals = sentiment_extractor.extract_ticker_sentiment(ticker, chunks)
 
-        # Get latest score
-        latest_score = signals[0].score if signals else None
+        # Signals are sorted by date descending, so the first reliable one
+        # (if any) is the most recent genuine prediction. An unreliable
+        # signal's score is a provider/parsing placeholder, not a real
+        # prediction, so it must never be surfaced as latest_score even
+        # when it's the most recent chunk chronologically (requirement:
+        # never substitute a fabricated value for a missing prediction).
+        reliable_signals = [s for s in signals if s.reliable]
+        total_chunk_count = len(signals)
+        reliable_chunk_count = len(reliable_signals)
+
+        if reliable_chunk_count == 0:
+            status, degraded, degradation_reason, latest_score = (
+                "degraded",
+                True,
+                "full_extraction_failure",
+                None,
+            )
+        elif reliable_chunk_count < total_chunk_count:
+            status, degraded, degradation_reason, latest_score = (
+                "degraded",
+                True,
+                "partial_extraction_failure",
+                reliable_signals[0].score,
+            )
+        else:
+            status, degraded, degradation_reason, latest_score = (
+                "ok",
+                False,
+                None,
+                signals[0].score,
+            )
 
         latency_ms = int((time.time() - start_time) * 1000)
         metrics_collector.record_sentiment(latency_ms)
@@ -101,6 +131,11 @@ def get_sentiment(
             signals=signals,
             latest_score=latest_score,
             latency_ms=latency_ms,
+            status=status,
+            degraded=degraded,
+            degradation_reason=degradation_reason,
+            reliable_chunk_count=reliable_chunk_count,
+            total_chunk_count=total_chunk_count,
         )
 
     except Exception as e:
@@ -168,14 +203,38 @@ def get_sentiment_summary(
                 "latency_ms": latency_ms,
             }
 
-        # Calculate statistics
-        scores = [s.score for s in signals]
+        # Aggregate statistics use only RELIABLE signals - an unreliable
+        # signal's score is a provider/parsing placeholder (typically 0.0),
+        # not a real prediction, and mixing it into avg_score/trend would
+        # silently pull the aggregate toward neutral for reasons unrelated
+        # to actual sentiment (audit finding, 2026-09-11: this previously
+        # averaged over ALL signals unconditionally, the same leakage
+        # already fixed for latest_score in GET /{ticker}).
+        reliable_signals = [s for s in signals if s.reliable]
+        degraded = len(reliable_signals) < len(signals)
+
+        if not reliable_signals:
+            latency_ms = int((time.time() - start_time) * 1000)
+            metrics_collector.record_sentiment(latency_ms)
+            return {
+                "ticker": ticker,
+                "period_days": 0,
+                "avg_score": None,
+                "trend": "unknown",
+                "signal_count": len(signals),
+                "reliable_signal_count": 0,
+                "degraded": True,
+                "most_recent_date": None,
+                "latency_ms": latency_ms,
+            }
+
+        scores = [s.score for s in reliable_signals]
         avg_score = sum(scores) / len(scores)
 
         # Determine trend
-        if len(signals) >= 3:
+        if len(reliable_signals) >= 3:
             # Compare recent 3 vs older signals
-            recent_avg = sum(s.score for s in signals[:3]) / 3
+            recent_avg = sum(s.score for s in reliable_signals[:3]) / 3
             if recent_avg > avg_score + 0.1:
                 trend = "improving"
             elif recent_avg < avg_score - 0.1:
@@ -185,7 +244,9 @@ def get_sentiment_summary(
         else:
             trend = "stable"
 
-        # Calculate period
+        # Calculate period over all signals' dates (a date range is
+        # observational, not a prediction, so unreliable entries don't
+        # corrupt it the way including their scores would).
         dates = [s.date for s in signals]
         most_recent = max(dates)
         oldest = min(dates)
@@ -200,6 +261,8 @@ def get_sentiment_summary(
             "avg_score": round(avg_score, 3),
             "trend": trend,
             "signal_count": len(signals),
+            "reliable_signal_count": len(reliable_signals),
+            "degraded": degraded,
             "most_recent_date": most_recent,
             "latency_ms": latency_ms,
         }

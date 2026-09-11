@@ -3,6 +3,26 @@
 Tests whether positive AlphaSignal sentiment predicts positive 5-day forward returns.
 Works standalone without a running AlphaSignal API - if the API is unavailable,
 sentiment predictions are marked 'unavailable' and only return data is shown.
+
+Evaluation design, explicit (2026-09-11): this evaluates sentiment over
+RETRIEVED CORPUS CHUNKS around the event date (via GET /sentiment/{ticker}
+?date_to=<event_date>), not the golden set's `event_description` text
+directly - the sentiment endpoint has no "score this text" mode, only
+"score whatever's in the corpus for this ticker up to this date". A
+prediction therefore reflects the ingested corpus's coverage of the event,
+which may be thin or absent even for a real, well-known event (see the
+2020-2023 corpus gap) - that is a distinct failure mode from the model
+misjudging sentiment on text it was actually given, and results should be
+read accordingly, not as event-text sentiment scoring accuracy.
+
+Metric hygiene (audit finding, 2026-09-11): a genuinely unavailable
+prediction (no corpus coverage, or the API unreachable) is never
+substituted with expected_sentiment (the ground-truth label) for scoring -
+that would grade the label against itself. Directional accuracy and the
+predicted-sentiment Sharpe ratio are computed only over rows with a
+genuine, non-neutral, available prediction; prediction coverage (how many
+of the actionable golden-set rows got a genuine prediction at all) is
+reported as its own, separate number.
 """
 
 from __future__ import annotations
@@ -221,16 +241,24 @@ def _return_to_direction(ret: Optional[float]) -> Optional[int]:
 
 
 def _is_correct_prediction(
-    expected_sentiment: str, actual_return: Optional[float]
+    predicted_sentiment: str, actual_return: Optional[float]
 ) -> Optional[bool]:
-    """True if sentiment direction matched return direction, False otherwise, None if indeterminate."""
-    exp_dir = _sentiment_to_direction(expected_sentiment)
+    """True if the *predicted* sentiment's direction matched the actual
+    return's direction, False otherwise, None if indeterminate (predicted
+    sentiment unavailable, neutral, or return data missing).
+
+    Renamed parameter from a prior "expected_sentiment" (audit finding,
+    2026-09-11): the argument here must always be the model's own
+    prediction, never the golden-set ground truth - passing expected_sentiment
+    in for a missing prediction would grade the ground truth against itself.
+    """
+    pred_dir = _sentiment_to_direction(predicted_sentiment)
     ret_dir = _return_to_direction(actual_return)
-    if exp_dir is None or ret_dir is None:
+    if pred_dir is None or ret_dir is None:
         return None
-    if exp_dir == 0:
-        return None  # neutral signals are excluded from accuracy
-    return exp_dir == ret_dir
+    if pred_dir == 0:
+        return None  # neutral predictions are excluded from accuracy
+    return pred_dir == ret_dir
 
 
 def _print_results_table(results: list[dict[str, Any]]) -> None:
@@ -295,14 +323,24 @@ def _print_summary(results: list[dict[str, Any]]) -> None:
         r for r in with_returns if r["expected_sentiment"] in ("positive", "negative")
     ]
 
-    # Directional accuracy (using expected_sentiment as proxy when predicted unavailable)
+    # Directional accuracy computed ONLY over genuinely produced predictions
+    # (correct is None for unavailable/neutral predictions or missing
+    # return data - never substituted with the ground-truth label; see
+    # _is_correct_prediction). Coverage over `actionable` is reported
+    # separately below so a small denominator here isn't hidden.
     correctness_list = [r["correct"] for r in actionable if r["correct"] is not None]
+    predictions_available = sum(
+        1 for r in actionable if r["predicted_sentiment"] != "unavailable"
+    )
     if correctness_list:
         accuracy = sum(correctness_list) / len(correctness_list) * 100
     else:
         accuracy = None
 
-    # Avg returns by expected sentiment direction
+    # Avg returns by GROUND-TRUTH sentiment direction (a golden-set/market
+    # diagnostic - "did events we labeled positive tend to see positive
+    # returns" - not a model-performance metric, since it uses no
+    # prediction at all).
     positive_returns = [
         r["actual_5d_return_pct"]
         for r in with_returns
@@ -323,14 +361,16 @@ def _print_summary(results: list[dict[str, Any]]) -> None:
         sum(negative_returns) / len(negative_returns) if negative_returns else None
     )
 
-    # Sharpe of using sentiment as a signal
-    # Long on positive sentiment events, short on negative sentiment events
+    # Sharpe of trading on the MODEL'S PREDICTED sentiment (long on predicted
+    # positive, short on predicted negative). Audit finding (2026-09-11):
+    # this used to build the trade signal from expected_sentiment (the
+    # golden-set ground-truth label), which backtests the label itself, not
+    # the model - a genuinely unavailable prediction must not enter this as
+    # if it were a real signal, so rows are filtered on predicted_sentiment.
     signal_returns: list[float] = []
-    for r in actionable:
+    for r in with_returns:
         ret = r["actual_5d_return_pct"]
-        if ret is None:
-            continue
-        direction = _sentiment_to_direction(r["expected_sentiment"])
+        direction = _sentiment_to_direction(r["predicted_sentiment"])
         if direction is not None and direction != 0:
             signal_returns.append(direction * ret)
 
@@ -349,33 +389,48 @@ def _print_summary(results: list[dict[str, Any]]) -> None:
     print("=" * 60)
     print(f"Total events evaluated:          {len(results)}")
     print(f"Events with return data:         {len(with_returns)}")
-    print(f"Actionable signals (pos/neg):    {len(actionable)}")
+    print(f"Actionable signals (pos/neg ground truth): {len(actionable)}")
+    print(
+        f"Prediction coverage (actionable): {predictions_available}/{len(actionable)}"
+        f"{f'  ({predictions_available / len(actionable) * 100:.1f}%)' if actionable else ''}"
+    )
 
     if accuracy is not None:
         print(
-            f"Directional accuracy:            {accuracy:.1f}%  ({sum(correctness_list)}/{len(correctness_list)} correct)"
+            f"Directional accuracy:            {accuracy:.1f}%  "
+            f"({sum(correctness_list)}/{len(correctness_list)} correct; "
+            f"denominator = genuine, non-neutral, available predictions only)"
         )
     else:
-        print("Directional accuracy:            N/A (predicted sentiment unavailable)")
+        print(
+            "Directional accuracy:            N/A "
+            "(no genuine, non-neutral, available predictions to evaluate)"
+        )
 
     if avg_pos is not None:
         print(
-            f"Avg 5d return (positive signals): {avg_pos:+.2f}%  (n={len(positive_returns)})"
+            f"Avg 5d return (ground-truth positive events): {avg_pos:+.2f}%  (n={len(positive_returns)})"
         )
     else:
-        print("Avg 5d return (positive signals): N/A")
+        print("Avg 5d return (ground-truth positive events): N/A")
 
     if avg_neg is not None:
         print(
-            f"Avg 5d return (negative signals): {avg_neg:+.2f}%  (n={len(negative_returns)})"
+            f"Avg 5d return (ground-truth negative events): {avg_neg:+.2f}%  (n={len(negative_returns)})"
         )
     else:
-        print("Avg 5d return (negative signals): N/A")
+        print("Avg 5d return (ground-truth negative events): N/A")
 
     if sharpe is not None:
-        print(f"Sentiment signal Sharpe ratio:    {sharpe:.3f}")
+        print(
+            f"Predicted-sentiment signal Sharpe ratio: {sharpe:.3f}  "
+            f"(n={len(signal_returns)} genuine non-neutral predictions)"
+        )
     else:
-        print("Sentiment signal Sharpe ratio:    N/A")
+        print(
+            "Predicted-sentiment signal Sharpe ratio: N/A "
+            "(fewer than 2 genuine non-neutral predictions)"
+        )
 
     print("=" * 60)
 
@@ -475,14 +530,17 @@ def run_evaluation(
         )
         print(f"  sentiment={predicted_sentiment}")
 
-        # Determine correctness
-        # When predicted is unavailable, fall back to expected_sentiment for correctness check
-        sentiment_for_correctness = (
-            predicted_sentiment
-            if predicted_sentiment != "unavailable"
-            else expected_sentiment
-        )
-        correct = _is_correct_prediction(sentiment_for_correctness, actual_return)
+        # Determine correctness from the genuine prediction only.
+        # Audit finding (2026-09-11): this used to fall back to
+        # expected_sentiment (the ground-truth label) whenever the API
+        # prediction was unavailable, then scored that as a "correct"
+        # prediction - i.e. it graded the ground truth against itself.
+        # That inflated accuracy on every unavailable prediction and is the
+        # source of prior unverified accuracy claims. expected_sentiment
+        # must never stand in for a missing prediction; an unavailable
+        # prediction is excluded from accuracy via `correct=None` below
+        # (see _is_correct_prediction) and reported only in coverage.
+        correct = _is_correct_prediction(predicted_sentiment, actual_return)
 
         result: dict[str, Any] = {
             "ticker": ticker,

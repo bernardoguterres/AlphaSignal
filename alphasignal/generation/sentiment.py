@@ -90,7 +90,7 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
             response_text = response.choices[0].message.content or ""
 
             # Parse JSON
-            sentiment_data = self._parse_sentiment_json(response_text)
+            sentiment_data, parsed_ok = self._parse_sentiment_json(response_text)
 
             # Validate and clamp scores. NaN/Infinity must be rejected
             # BEFORE clamping, not clamped: Python's max()/min() don't
@@ -113,6 +113,7 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
                     key_positive=[],
                     key_negative=[],
                     summary="Invalid score from provider",
+                    reliable=False,
                 )
                 self._cache[chunk.chunk_id] = (result, datetime.now())
                 return result
@@ -126,6 +127,7 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
                 key_positive=sentiment_data.get("key_positive", [])[:3],
                 key_negative=sentiment_data.get("key_negative", [])[:3],
                 summary=sentiment_data.get("summary", ""),
+                reliable=parsed_ok,
             )
 
             # Cache result
@@ -141,13 +143,15 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
                 f"Error extracting sentiment for chunk {chunk.chunk_id}: {e}",
                 exc_info=True,
             )
-            # Return default result
+            # Return default result - an API/exception failure, not a
+            # genuine neutral prediction, so it must not look reliable.
             return SentimentResult(
                 score=0.0,
                 confidence=0.0,
                 key_positive=[],
                 key_negative=[],
                 summary="Parse error",
+                reliable=False,
             )
 
     def extract_ticker_sentiment(
@@ -185,6 +189,7 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
                 summary=sentiment.summary,
                 key_positive=sentiment.key_positive,
                 key_negative=sentiment.key_negative,
+                reliable=sentiment.reliable,
             )
             signals.append(signal)
 
@@ -194,24 +199,28 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
         logger.info(f"Extracted {len(signals)} sentiment signals for {ticker}")
         return signals
 
-    def _parse_sentiment_json(self, response_text: str) -> dict:
+    def _parse_sentiment_json(self, response_text: str) -> tuple[dict, bool]:
         """Parse JSON from LLM response, with fallback handling.
 
         Args:
             response_text: Raw response text from LLM
 
         Returns:
-            Parsed sentiment dictionary
+            Tuple of (parsed sentiment dictionary, whether parsing actually
+            succeeded). The second element lets callers distinguish a
+            genuine parsed result (including a genuinely neutral one) from
+            the placeholder dict returned when the provider's response
+            could not be parsed at all.
         """
         try:
             # Try direct parse
-            return json.loads(response_text.strip())
+            return json.loads(response_text.strip()), True
         except json.JSONDecodeError:
             # Try to extract JSON substring using regex
             json_match = re.search(r"\{[^}]+\}", response_text, re.DOTALL)
             if json_match:
                 try:
-                    return json.loads(json_match.group())
+                    return json.loads(json_match.group()), True
                 except json.JSONDecodeError:
                     pass
 
@@ -223,4 +232,4 @@ Respond ONLY with a valid JSON object in exactly this format, no other text:
                 "key_positive": [],
                 "key_negative": [],
                 "summary": "Parse error",
-            }
+            }, False

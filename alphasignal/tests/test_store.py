@@ -154,9 +154,10 @@ def test_vector_store_save_does_not_clobber_existing_files_on_mid_write_failure(
 ):
     """Audit bug: save() wrote index.faiss and chunk_ids.json as two separate
     non-atomic steps, so a crash between them left the on-disk pair
-    inconsistent. save() must write to temp files and only replace the real
-    files once both writes have succeeded - if the second write fails, the
-    original on-disk pair must be untouched."""
+    inconsistent. save() must write to temp files and only activate the new
+    generation (via the single-file manifest replace) once both writes have
+    succeeded - if a write fails, the previously active generation's files
+    (and the manifest pointing at them) must be untouched."""
     index_path = tmp_path / "index"
 
     store = VectorStore(str(index_path), dim=1536)
@@ -165,8 +166,11 @@ def test_vector_store_save_does_not_clobber_existing_files_on_mid_write_failure(
     embeddings = np.random.rand(3, 1536).astype(np.float32)
     store.add(embeddings, ["a", "b", "c"])
 
-    index_file = index_path / "index.faiss"
-    ids_file = index_path / "chunk_ids.json"
+    manifest_file = index_path / "manifest.json"
+    active_generation = store.generation
+    index_file = index_path / f"index.g{active_generation}.faiss"
+    ids_file = index_path / f"chunk_ids.g{active_generation}.json"
+    original_manifest_bytes = manifest_file.read_bytes()
     original_index_bytes = index_file.read_bytes()
     original_ids_bytes = ids_file.read_bytes()
 
@@ -176,9 +180,13 @@ def test_vector_store_save_does_not_clobber_existing_files_on_mid_write_failure(
     with patch("builtins.open", side_effect=OSError("disk full")):
         store.save()
 
-    # Original files must be untouched - no partial/inconsistent write.
+    # Original active generation's files AND the manifest pointing at them
+    # must be untouched - no partial/inconsistent write, and no incomplete
+    # generation ever gets activated.
+    assert manifest_file.read_bytes() == original_manifest_bytes
     assert index_file.read_bytes() == original_index_bytes
     assert ids_file.read_bytes() == original_ids_bytes
+    assert store.generation == active_generation
 
 
 def test_vector_store_load_recovers_from_corrupted_index(tmp_path):
@@ -433,12 +441,16 @@ def test_embedding_cache_hit_and_miss(tmp_path):
     cache_path = tmp_path / "cache.pkl"
     cache = EmbeddingCache(str(cache_path))
 
-    # Set embedding for chunk_001
+    # Set embedding for chunk_001 WITH a content_hash - a genuine, trusted
+    # entry (not a hashless/unknown-provenance one; see the dedicated
+    # legacy-entry tests for that case).
     embedding1 = np.random.rand(1536).astype(np.float32)
-    cache.set("chunk_001", embedding1)
+    cache.set("chunk_001", embedding1, content_hash="hash_001")
 
     # Get many with mix of cached and uncached
-    cached, uncached = cache.get_many(["chunk_001", "chunk_002"])
+    cached, uncached = cache.get_many(
+        {"chunk_001": "hash_001", "chunk_002": "hash_002"}
+    )
 
     # Verify results
     assert "chunk_001" in cached
@@ -451,33 +463,36 @@ def test_embedder_uses_cache(test_config, tmp_path):
     cache_path = tmp_path / "cache.pkl"
     cache = EmbeddingCache(str(cache_path))
 
-    # Pre-populate cache with 5 chunks
-    for i in range(5):
+    # Create 7 chunks (5 cached + 2 new)
+    chunks = [
+        Chunk(
+            chunk_id=f"chunk_{i:03d}",
+            ticker="TEST",
+            text=f"Text {i}",
+            token_count=50,
+            doc_type="news",
+            source="Test",
+            section=None,
+            date=date.today(),
+            url=f"http://test.com/{i}",
+            chunk_index=i,
+            total_chunks=7,
+        )
+        for i in range(7)
+    ]
+
+    # Pre-populate the cache for 5 of the 7 chunks WITH their real
+    # content_hash - a genuine, trusted cache entry, not a hashless/
+    # unknown-provenance one (see the dedicated legacy-entry tests for that
+    # case, which must force re-embedding instead).
+    for chunk in chunks[:5]:
         embedding = np.random.rand(1536).astype(np.float32)
-        cache.set(f"chunk_{i:03d}", embedding)
+        cache.set(chunk.chunk_id, embedding, content_hash=chunk.content_hash)
 
     # Mock OpenAI client initialization
     with patch("alphasignal.embeddings.embedder.OpenAI") as MockOpenAI:
         # Create embedder with cache
         embedder = Embedder(test_config, cache)
-
-        # Create 7 chunks (5 cached + 2 new)
-        chunks = [
-            Chunk(
-                chunk_id=f"chunk_{i:03d}",
-                ticker="TEST",
-                text=f"Text {i}",
-                token_count=50,
-                doc_type="news",
-                source="Test",
-                section=None,
-                date=date.today(),
-                url=f"http://test.com/{i}",
-                chunk_index=i,
-                total_chunks=7,
-            )
-            for i in range(7)
-        ]
 
         # Mock OpenAI client to track calls
         mock_response = MagicMock()
@@ -509,13 +524,15 @@ def test_embedding_cache_persists_across_instances(tmp_path):
 
     cache1 = EmbeddingCache(str(cache_path))
     embedding = np.random.rand(1536).astype(np.float32)
-    cache1.set("chunk_persist", embedding)
+    cache1.set("chunk_persist", embedding, content_hash="hash_persist")
     cache1.save()
 
     # New instance should load the persisted cache from disk
     cache2 = EmbeddingCache(str(cache_path))
     assert len(cache2) == 1
-    assert np.array_equal(cache2.get("chunk_persist"), embedding)
+    assert np.array_equal(
+        cache2.get("chunk_persist", content_hash="hash_persist"), embedding
+    )
 
 
 def test_embedding_cache_get_returns_none_for_missing_key(tmp_path):
@@ -615,3 +632,177 @@ def test_embedder_raises_after_exhausting_retries(test_config, tmp_path):
         ), patch("alphasignal.embeddings.embedder.time.sleep"):
             with pytest.raises(Exception, match="permanent failure"):
                 embedder.embed_texts(["hello world"])
+
+
+# --- Stale-embedding / content-fingerprint tests (objective 2) ---
+
+
+def _chunk(chunk_id, text, chunk_index=0, total_chunks=1, ticker="AAPL"):
+    return Chunk(
+        chunk_id=chunk_id,
+        ticker=ticker,
+        text=text,
+        token_count=len(text.split()),
+        doc_type="10-K",
+        source="SEC EDGAR",
+        section="item_1",
+        date=date(2024, 1, 1),
+        url=None,
+        chunk_index=chunk_index,
+        total_chunks=total_chunks,
+    )
+
+
+def test_chunk_content_hash_auto_computed_and_stable():
+    """Same text -> same content_hash; different text -> different hash."""
+    c1 = _chunk("doc_0000", "Original filing text.")
+    c2 = _chunk("doc_0000", "Original filing text.")
+    c3 = _chunk("doc_0000", "Amended filing text.")
+
+    assert c1.content_hash == c2.content_hash
+    assert c1.content_hash != c3.content_hash
+    assert c1.content_hash  # non-empty
+
+
+def test_embedding_cache_unchanged_reingest_is_cache_hit(test_config, tmp_path):
+    """Re-ingesting identical content under the same chunk_id must not
+    trigger a second embedding call."""
+    cache = EmbeddingCache(str(tmp_path / "cache"))
+
+    with patch("alphasignal.embeddings.embedder.OpenAI"):
+        embedder = Embedder(test_config, cache)
+
+        chunk = _chunk("doc_0000", "Original filing text.")
+        mock_response = MagicMock()
+        mock_response.data = [MagicMock(embedding=np.random.rand(1536).tolist())]
+
+        with patch.object(
+            embedder.client.embeddings, "create", return_value=mock_response
+        ) as mock_create:
+            embedder.embed_chunks([chunk])
+            assert mock_create.call_count == 1
+
+            # Re-ingest same chunk_id, same text -> cache hit, no API call.
+            embedder.embed_chunks([chunk])
+            assert mock_create.call_count == 1
+
+
+def test_embedding_cache_changed_content_triggers_reembedding(test_config, tmp_path):
+    """Same chunk_id, changed text -> cache miss, re-embedded."""
+    cache = EmbeddingCache(str(tmp_path / "cache"))
+
+    with patch("alphasignal.embeddings.embedder.OpenAI"):
+        embedder = Embedder(test_config, cache)
+
+        original = _chunk("doc_0000", "Original filing text.")
+        amended = _chunk("doc_0000", "Amended filing text with new numbers.")
+
+        mock_response = MagicMock()
+        mock_response.data = [MagicMock(embedding=np.random.rand(1536).tolist())]
+
+        with patch.object(
+            embedder.client.embeddings, "create", return_value=mock_response
+        ) as mock_create:
+            embedder.embed_chunks([original])
+            assert mock_create.call_count == 1
+
+            embedder.embed_chunks([amended])
+            assert mock_create.call_count == 2, (
+                "Changed content under the same chunk_id must re-embed, "
+                "not return the stale cached vector"
+            )
+
+
+def test_embedding_cache_legacy_entry_without_hash_is_untrusted_and_misses(tmp_path):
+    """A cache entry saved before content_hash existed (hash == '') has no
+    evidence it was produced from any particular text, so it must be
+    treated as an unconditional miss - never served as a hit, regardless
+    of whether a content_hash is passed to get() (audit correction,
+    2026-09-11: an earlier version of this policy served such an entry as
+    a hit indefinitely, which could silently return an embedding of
+    unknown provenance as if it matched the current text)."""
+    cache = EmbeddingCache(str(tmp_path / "cache"))
+    embedding = np.random.rand(8).astype(np.float32)
+    cache.set("legacy_chunk", embedding)  # no content_hash passed
+
+    assert cache.get("legacy_chunk", content_hash="some-new-hash") is None
+    # Also a miss with no content_hash argument at all - hashlessness alone
+    # is disqualifying, not something a caller can bypass by omission.
+    assert cache.get("legacy_chunk") is None
+
+
+def test_vector_store_unchanged_reingest_is_idempotent(tmp_path):
+    """Re-adding the same chunk_id with the same content_hash must not
+    duplicate or rebuild the index."""
+    store = VectorStore(str(tmp_path / "index"), dim=8)
+    store.load()
+
+    embedding = np.random.rand(1, 8).astype(np.float32)
+    store.add(embedding, ["doc_0000"], {"doc_0000": "hash_a"})
+    assert len(store) == 1
+
+    store.add(embedding, ["doc_0000"], {"doc_0000": "hash_a"})
+    assert len(store) == 1, "Unchanged content must not duplicate the vector"
+
+
+def test_vector_store_changed_content_replaces_vector_no_duplicates(tmp_path):
+    """Same chunk_id, new content_hash -> old vector is replaced, not
+    duplicated, and the new vector is what's actually searchable."""
+    store = VectorStore(str(tmp_path / "index"), dim=8)
+    store.load()
+
+    other_embedding = np.random.rand(1, 8).astype(np.float32)
+    store.add(other_embedding, ["other_chunk"], {"other_chunk": "hash_other"})
+
+    old_vec = np.ones((1, 8), dtype=np.float32)
+    store.add(old_vec, ["doc_0000"], {"doc_0000": "hash_a"})
+    assert len(store) == 2
+
+    new_vec = np.zeros((1, 8), dtype=np.float32)
+    new_vec[0, 0] = 1.0
+    store.add(new_vec, ["doc_0000"], {"doc_0000": "hash_b"})
+
+    # Still exactly 2 vectors (other_chunk + the replaced doc_0000), never 3.
+    assert len(store) == 2
+    assert set(store.chunk_ids) == {"other_chunk", "doc_0000"}
+    assert store.content_hashes["doc_0000"] == "hash_b"
+
+    # The obsolete vector must no longer be searchable: searching for the
+    # exact old vector should now score doc_0000 much lower than a search
+    # for the new vector does.
+    results_new = store.search(new_vec[0], k=2)
+    result_map = dict(results_new)
+    assert result_map["doc_0000"] > 0.99  # near-exact cosine match
+
+
+def test_vector_store_replace_survives_reload_from_disk(tmp_path):
+    """The rebuilt index (after a content change) must persist correctly -
+    a fresh VectorStore instance loading from disk sees the new vector and
+    the updated content_hash, not the stale one."""
+    index_path = tmp_path / "index"
+
+    store1 = VectorStore(str(index_path), dim=8)
+    store1.load()
+    store1.add(np.ones((1, 8), dtype=np.float32), ["doc_0000"], {"doc_0000": "hash_a"})
+    store1.add(np.zeros((1, 8), dtype=np.float32), ["doc_0000"], {"doc_0000": "hash_b"})
+
+    store2 = VectorStore(str(index_path), dim=8)
+    store2.load()
+
+    assert len(store2) == 1
+    assert store2.content_hashes["doc_0000"] == "hash_b"
+
+
+def test_vector_store_add_without_content_hashes_falls_back_to_identity_dedup(
+    tmp_path,
+):
+    """Backward compatibility: calling add() without content_hashes (as old
+    callers do) preserves the original skip-if-chunk_id-exists behavior."""
+    store = VectorStore(str(tmp_path / "index"), dim=8)
+    store.load()
+
+    embedding = np.random.rand(1, 8).astype(np.float32)
+    store.add(embedding, ["doc_0000"])
+    store.add(embedding, ["doc_0000"])
+
+    assert len(store) == 1
