@@ -1,25 +1,26 @@
 # AlphaSignal
 
-A financial RAG service that answers questions about SEC filings and news with source-linked citations, and separately scores sentiment per ticker - an optional signal source consumed by [AlphaLive](https://github.com/bernardoguterres/AlphaLive), an execution and risk-management engine.
+AlphaSignal is a Python and FastAPI service that answers questions about SEC filings and financial news with source-linked citations, and separately produces a per-ticker sentiment signal. It retrieves with a hybrid of BM25 keyword search and FAISS dense vector search, reranks candidates with a cross-encoder, and generates answers that cite exactly the chunks they draw from. The sentiment signal is optional and status-aware: callers can tell "no data yet," "genuine neutral," "degraded extraction," and "fully failed" apart instead of one ambiguous score. It is consumed by [AlphaLive](https://github.com/bernardoguterres/AlphaLive), an execution and risk-management engine, as one input among several before it places a trade.
+
+**Portfolio release.** The service runs end to end against a real local corpus, not a mocked design, and is backed by 335 passing tests covering software correctness: schema validation, citation-marker parsing, storage consistency, degraded-state handling, filter logic. Retrieval relevance and sentiment accuracy are separate questions this suite doesn't answer; see [Evaluation status](#evaluation-status) for what is and isn't measured.
 
 ## Status and evidence boundary
 
-**Portfolio release.** The pipeline below runs end to end against a real local corpus, not a mocked design. What that does and doesn't prove:
-
-- **Runtime-verified:** the architecture executes. Citation integrity was checked against live queries (zero unresolved references); the `/sentiment/{ticker}` no-data path and AlphaLive's gate-bypass behavior were exercised against the running service.
-- **Not benchmarked:** retrieval quality has never been measured - the golden set exists but is unannotated, see [Evaluation status](#evaluation-status). No MRR/NDCG/Hit@k numbers appear here. A separate sentiment dataset exists but does not establish validated accuracy.
+- **Runtime-verified:** the architecture executes against a real corpus. Citation integrity was checked against live queries with zero unresolved references, and the `/sentiment/{ticker}` no-data/degraded paths and AlphaLive's gate-bypass behavior were exercised against the running service.
+- **Not benchmarked:** retrieval quality has never been measured - the golden set exists but is unannotated, see [Evaluation status](#evaluation-status). No MRR/NDCG/Hit@k numbers appear here, and the sentiment fixture does not establish validated accuracy.
 - **Not deployed:** Railway configuration is present and internally consistent, but has not been exercised as a running deployment.
-- **209/209 tests passing, 93% coverage** - validates software behavior, not retrieval relevance or sentiment accuracy.
+- **335/335 tests passing, Ruff clean, Black-formatted** - validates software behavior, not retrieval relevance or sentiment accuracy. A coverage percentage is intentionally omitted since it was not remeasured after the most recent changes.
 
-Nothing is investment advice.
+Nothing here is investment advice.
 
 ## Engineering highlights
 
-- **Hybrid retrieval, not single-mode search.** Dense (FAISS cosine similarity) catches semantic matches ("revenue" ~ "sales"); BM25 catches exact keyword matches embeddings can blur. Scores are min-max normalized and combined with a configurable weight (default 40% BM25 / 60% dense).
-- **Cross-encoder reranking as a second pass.** The hybrid merge over-fetches candidates, then `cross-encoder/ms-marco-MiniLM-L-6-v2` scores each query-chunk pair jointly for a precision pass the bi-encoder stage can't do cheaply.
-- **Citation integrity is an enforced invariant, not a hope.** `_parse_citations()` renumbers every resolvable `[Source N]` marker sequentially and strips any marker referencing a chunk beyond what was retrieved, so `citations` and the text's markers always line up - a real, fixed defect (see [`generator.py`](alphasignal/generation/generator.py)): earlier behavior could drop an out-of-range citation while leaving its dangling text in the answer.
-- **Explicit no-data AND degradation semantics.** `/sentiment/{ticker}` flags "never ingested" (`data_available: false`, `status: "no_data"`) as distinct from having data, and now also flags a provider/parsing fallback as `status: "degraded"` distinct from genuine (possibly zero) sentiment - a fully-failed extraction returns `latest_score: null`, never a fabricated `0.0`. See [Sentiment and AlphaLive integration](#sentiment-and-alphalive-integration) and [`docs/sentiment_contract.md`](docs/sentiment_contract.md).
-- **AlphaLive integration is fail-open and scoped to entries**, not exits. If unreachable, disabled, or lacking data, AlphaLive bypasses the gate and runs its normal risk/execution checks - runtime-tested locally, not validated under live trading.
+- **Hybrid retrieval, not single-mode search.** Dense FAISS search catches semantic matches like "revenue" against "sales"; BM25 catches exact keyword matches embeddings can blur. Combined with a configurable weight (default 40% BM25, 60% dense).
+- **Cross-encoder reranking as a second pass.** `cross-encoder/ms-marco-MiniLM-L-6-v2` scores each query-chunk pair jointly, a precision pass the cheaper bi-encoder stage can't do alone.
+- **Citation integrity is an enforced invariant**, not a hope - see [Hybrid retrieval and cited generation](#hybrid-retrieval-and-cited-generation).
+- **Explicit degraded-state API design for sentiment** - see [Sentiment and AlphaLive integration](#sentiment-and-alphalive-integration) and [`docs/sentiment_contract.md`](docs/sentiment_contract.md).
+- **Defensive SQLite/FAISS consistency** - see [Ingestion and storage integrity](#ingestion-and-storage-integrity).
+- **AlphaLive integration is fail-open and scoped to entries, not exits**, exercised as a local runtime test, not validated under live trading.
 
 ## Architecture
 
@@ -35,7 +36,7 @@ flowchart TB
         E --> G["Embedder: text-embedding-3-small"]
         G <--> F[Embedding cache]
         E --> H[(SQLite: text and metadata)]
-        G --> I[(FAISS: embeddings)]
+        G --> I[(FAISS: dense vectors)]
     end
 
     subgraph QRY["Query path"]
@@ -65,33 +66,39 @@ flowchart TB
     V -.gate on BUY/SELL only.-> W[[AlphaLive pre-execution check, external]]
 ```
 
-FAISS and SQLite are complementary, not overlapping: FAISS holds only chunk embeddings and IDs, SQLite holds chunk text and metadata. Retrieval queries both and joins on `chunk_id`. Sentiment never touches the query path's reranked chunks - it pulls its own ticker/date-filtered set from SQLite. AlphaLive is an external consumer of `/sentiment/{ticker}`, not part of this repository.
+FAISS holds only dense vectors and chunk identities; SQLite holds chunk text and metadata. Retrieval queries both and joins on chunk ID. Sentiment never touches the query path's reranked chunks - it pulls its own ticker/date-filtered set from SQLite. AlphaLive is an external consumer of `/sentiment/{ticker}`, not part of this repository.
 
-## Ingestion and storage
+## Ingestion and storage integrity
 
-`IngestionPipeline` (`alphasignal/ingestion/pipeline.py`) fetches SEC EDGAR filings and RSS news per ticker, then chunks them with `SemanticChunker`: `target_tokens` (default 300) drives ordinary boundary decisions - a chunk closes once it reaches this size; `max_tokens` (default 400) is the hard ceiling, used to force-split a single oversized sentence and to cap `target_tokens` if it's ever configured above `max_tokens`; `min_tokens` (default 100) is a configured minimum used during final-chunk handling, not an absolute lower bound; `overlap_tokens` (default 50) is a maximum budget for carrying complete trailing sentences forward, not a guaranteed floor.
+`IngestionPipeline` (`alphasignal/ingestion/pipeline.py`) fetches SEC EDGAR filings and RSS news per ticker, then chunks them with `SemanticChunker`. `target_tokens` (default 300) drives ordinary boundary decisions; `max_tokens` (default 400) is the hard ceiling, forcing a split within an oversized sentence and capping `target_tokens` if configured above it. `min_tokens` (default 100) guides final-fragment handling but isn't an absolute floor. `overlap_tokens` (default 50) is a maximum budget for carrying complete trailing sentences forward, not a guarantee; a hard-split sentence carries none forward. Invalid configuration normalizes to a safe value with a logged warning.
 
-Chunks are embedded via OpenAI (`text-embedding-3-small`), cached by a deterministic source-derived chunk ID: ticker/filing-date/accession-number/index for filings, ticker/URL/index for news. Storage splits across two places: **SQLite** (`data/metadata.db`) holds chunk text and metadata; **FAISS** (`data/faiss_index/`) holds normalized embeddings in an `IndexFlatIP` index, addressed by the same chunk IDs. Both dedupe on chunk ID *and* a content fingerprint (`content_hash`, sha256 of the chunk text): unchanged re-ingestion under the same ID is a genuine no-op (no re-embedding, no re-indexing), while a content change under an unchanged ID (e.g. an amended filing) re-embeds and replaces the stale vector rather than silently keeping it (see [Known limitations](#known-limitations) for the FAISS-side rebuild trade-off).
+Storage splits across two systems. **SQLite** (`data/metadata.db`) owns chunk text and metadata; **FAISS** (`data/faiss_index/`) owns dense vectors and chunk identities, addressed by the same source-derived chunk IDs. Both dedupe on chunk ID and a SHA-256 `content_hash`: unchanged re-ingestion is a no-op, while a content change under an unchanged ID (an amended filing) re-embeds and replaces the stale vector.
 
-The BM25 index is built in memory at API startup and rebuilt after each ingestion call - not persisted to disk.
+Consistency is enforced at query time, not assumed. A FAISS vector with no recorded `content_hash` - a hashless legacy cache entry, or one added through the identity-only fallback path - is treated as unverified and excluded from dense retrieval until re-ingestion produces a hash-verified vector. A vector whose hash disagrees with the chunk's current SQLite hash is excluded the same way, as a known mismatch. Neither case hides the chunk entirely: BM25 is built from current SQLite text independently of FAISS, so an excluded chunk can still surface through keyword relevance, reported with `dense_score=0.0`. Consistency-warning logs report chunk IDs and mismatch type, never document text.
 
-**Local corpus evidence, not committed data:** `data/` is gitignored, so the numbers below describe this machine's local corpus, not what ships in or is reproducible from the repository. As of this writing, `data/metadata.db` holds **42,078 chunks** across 12 tickers (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, JPM, GS, MS, SPY, QQQ), with SEC filing coverage split across 2015–2019 (a historical backfill) and 2024–2026 (regular ingestion) - **2020 through 2023 has no ingested data for any ticker**. Requests explicitly constrained to that window get documented no-data behavior, not a stale or fabricated result: `/sentiment/{ticker}` returns `data_available: false` with `latest_score: null`; `/query` (no `data_available` field) returns its no-relevant-information answer with an empty `citations` array.
+Each chunk carries an exact `source_id`. Re-ingesting a document compares its chunk set against only chunks already owned by that exact `source_id`, so removed or reflowed chunks are deleted without touching similarly named sources. Legacy rows without `source_id` fall back to a documented escaped chunk-ID-prefix match; an existing database is upgraded idempotently by adding the column with an empty default, never guessing legacy ownership. Cleaning up a source that now yields zero chunks requires the caller to supply its identity or prefix explicitly, since an empty chunk list can't reconstruct it - production ingestion paths already do this (see [Known limitations](#known-limitations)).
+
+## Coordinated FAISS persistence
+
+A save writes a complete, generation-numbered pair of files (a FAISS index and its chunk-ID list) rather than overwriting active files in place. The new generation is validated - dimension, vector count, no duplicate chunk IDs, agreement with the manifest's counts - before activation. A single small manifest atomically selects the current generation, so a crash between writing the new generation and updating the manifest leaves the previous, still-valid one active. Legacy flat index files are validated and migrated into this layout rather than assumed compatible. Only the current and previous generations are retained.
+
+This is not a distributed transaction: SQLite, FAISS, and the embedding cache do not commit together. Recovery relies on idempotent re-ingestion plus the query-time exclusion of unverified or mismatched dense vectors described above.
 
 ## Hybrid retrieval and cited generation
 
-`HybridRetriever.retrieve()` runs dense FAISS and sparse BM25 search independently (each over its own candidate pool, default 50), min-max normalizes both score sets, and combines them with configurable weights (default `bm25: 0.4, dense: 0.6`). The top `rerank_candidates` (default 20) go to `CrossEncoderReranker`, which scores each query-chunk pair jointly and returns the requested `top_k` (default 5, max 20).
+`HybridRetriever.retrieve()` runs dense FAISS and sparse BM25 search independently over their own candidate pools (default 50), min-max normalizes both score sets, and combines them with configurable weights (default `bm25: 0.4, dense: 0.6`). The top `rerank_candidates` (default 20) go to `CrossEncoderReranker`, which returns the requested `top_k` (default 5, max 20).
 
-`RAGGenerator` builds a numbered `[Source N]` context block from the reranked chunks and asks the model to answer only from it. `_parse_citations()` then enforces the citation-integrity invariant above before returning the response.
+`RAGGenerator` builds a numbered `[Source N]` context block from the reranked chunks and asks the model to answer only from it. `_parse_citations()` then enforces citation integrity before the response is returned: resolvable markers are renumbered sequentially, and any marker beyond what was retrieved is stripped from the answer text.
 
 ## Sentiment and AlphaLive integration
 
-`/sentiment/{ticker}` pulls ticker/date-filtered chunks from SQLite, independently of the query path, then `extract_ticker_sentiment()` sorts by date descending and runs **at most the 10 most recent chunks** - not the full set - through `SentimentExtractor`. Results are cached per chunk in memory (not persisted) for 24 hours, resetting on restart.
+`/sentiment/{ticker}` pulls ticker/date-filtered chunks from SQLite, independently of the query path, sorts them by date descending, and runs at most the 10 most recent through `SentimentExtractor`. Results are cached per chunk in memory (not persisted) for 24 hours, resetting on restart.
 
-Five cases matter, not three: **no stored chunks** (`data_available: false`, `status: "no_data"`, `latest_score: null`); **genuine extraction, including genuine neutral** (`status: "ok"`, `degraded: false`, `latest_score` may legitimately be `0.0`); **partial degradation** - one or more chunks fell back to a provider/parsing default (`status: "degraded"`, `degradation_reason: "partial_extraction_failure"`, `latest_score` still reflects the most recent *reliable* chunk, not discarded); **full degradation** - every chunk fell back (`status: "degraded"`, `degradation_reason: "full_extraction_failure"`, `latest_score: null` - never fabricated as `0.0`); and **route/storage/other unhandled failures**, which raise and surface as HTTP 5xx, never a 200. Per-chunk `SentimentSignal.reliable` and response-level `reliable_chunk_count`/`total_chunk_count` make the fallback-vs-genuine distinction explicit and machine-readable instead of inferring it from confidence/summary text. Full contract: [`docs/sentiment_contract.md`](docs/sentiment_contract.md).
+The response distinguishes five situations, documented in full in [`docs/sentiment_contract.md`](docs/sentiment_contract.md) - the machine-readable API contract for telling successful, no-data, partially degraded, fully degraded, and failed requests apart. `status: "ok"` covers genuine extraction including genuine neutral sentiment (`latest_score` may legitimately be `0.0`). `status: "no_data"` means no chunks were ever ingested, returning `latest_score: null`. Partial degradation means some chunks fell back to a provider/parsing default while others produced a real prediction; it returns the most recent *reliable* score, flagged `status: "degraded"`, `degradation_reason: "partial_extraction_failure"`. Full degradation means every chunk fell back, returning `latest_score: null` rather than a fabricated value, flagged `"full_extraction_failure"`. Unhandled failures raise as HTTP 5xx, never a misleading 200. Per-chunk `SentimentSignal.reliable` and response-level `reliable_chunk_count`/`total_chunk_count` make the fallback-versus-genuine split explicit. `/sentiment/{ticker}/summary` builds its aggregate score and trend from reliable signals only, reporting the same degradation metadata.
 
-AlphaLive's `run_pre_execution_checks()` consults `/sentiment/{ticker}` only for strategy-generated BUY/SELL signals, never for stop-loss/take-profit/trailing-stop exits. A BUY is blocked by sufficiently negative sentiment (default threshold -0.3), a SELL by sufficiently positive sentiment; HOLD never consults the gate. Timeout, network/HTTP error, a disabled integration, or an explicit no-data response all bypass the gate - AlphaLive falls through to its normal risk/execution checks, not a guaranteed order. AlphaLive normalizes the API response to `sentiment_score`, `confidence`, `sources`, `latency_ms`, and `data_available`; its allow/block decision uses `sentiment_score` and does not yet consume `status`/`degraded`/`reliable` - that's additive metadata this AlphaSignal-side pass adds, not a cross-repo behavior change. A degraded-but-nonzero fallback score therefore still passes through AlphaLive's gate like a genuine score today.
+AlphaLive's `run_pre_execution_checks()` consults `/sentiment/{ticker}` only for strategy-generated BUY/SELL signals, never protective exits, and reads the full contract rather than a bare score. A `no_data` response, a timeout, a network/HTTP error, or a disabled integration fail open with a distinct logged reason. A degraded response that's unusable - no reliable chunks, or a null score - fails open the same way, with its own logged reason so it isn't confused with clean no-data. A degraded response that's structurally valid and usable - at least one reliable chunk and a non-null score - is evaluated against AlphaLive's normal threshold like any other score, but the decision is tagged partially degraded so it's never mistaken for one made on a clean signal. A malformed or self-contradictory contract also fails open, categorically. Passing or bypassing the gate never bypasses AlphaLive's own independent risk and execution checks.
 
-This is a local runtime test, not a live-trading validation: both services against the real corpus, bypass behavior confirmed on "no data" and "error" paths. AlphaLab does not call this API - it uses `yfinance` directly.
+AlphaLab does not call this API - it uses `yfinance` directly.
 
 ## Evaluation status
 
@@ -99,18 +106,20 @@ There are two separate, unrelated evaluation assets - do not confuse them:
 
 | Asset | Purpose | Size | Status |
 |---|---|---|---|
-| `evaluation/retrieval_golden_set.json` | Retrieval quality (MRR/NDCG/Hit@k) | 50 questions, 10 tickers | **Unannotated** - `relevant_chunk_ids` empty everywhere |
-| `alphasignal/evaluation/sentiment_golden_set.json` | Event-sentiment/forward-return diagnostic fixture | 15 labeled events | Labeled, but methodologically unsound as an accuracy measure - see below |
+| `evaluation/retrieval_golden_set.json` | Retrieval quality (MRR/NDCG/Hit@k) | 50 questions, 10 tickers | Unannotated - `relevant_chunk_ids` empty everywhere |
+| `alphasignal/evaluation/sentiment_golden_set.json` | Event-sentiment diagnostic fixture | 15 labeled events | Labeled, but methodologically limited as an accuracy measure - see below |
 
-**Retrieval:** `benchmark.py` refuses to run against the unannotated set rather than report meaningless all-zero metrics; annotation (`annotate_golden_set.py`) must happen first. Its four configurations only vary hybrid weighting and reranking - "naive vs. semantic chunking" labels are aspirational, since only `SemanticChunker` exists and every row evaluates the same corpus (a warning is logged).
+**Retrieval:** `benchmark.py` refuses to run against the unannotated golden set rather than report meaningless all-zero metrics; annotation (`annotate_golden_set.py`) has to happen first. Its four configurations only vary hybrid weighting and reranking - "naive vs. semantic chunking" labels are aspirational, since only `SemanticChunker` exists.
 
-**Sentiment:** the 15-entry set has explicit `expected_sentiment` labels tied to historical events, but `run_eval.py` doesn't evaluate what it might appear to. It calls `GET /sentiment/{ticker}?date_to=<event_date>`, never submitting the event description to the model - so it scores retrieved corpus context around the event date, not the described event text itself. This is a real, distinct evaluation design (documented explicitly in `run_eval.py`'s module docstring), not a scoring bug by itself. What *was* a bug (fixed 2026-09-11): when a prediction was unavailable, the runner substituted `expected_sentiment` - the ground-truth label - into the correctness check, scoring the label against itself and inflating every unavailable-prediction row into an apparent "correct" prediction; the same substitution corrupted the Sharpe-style backtest, which used to build its trading signal from `expected_sentiment` rather than the model's actual prediction. Both are fixed: accuracy and Sharpe are now computed only over genuine, non-neutral, available predictions, with prediction coverage (`predictions_available / actionable`) reported as an explicit, separate number - see `alphasignal/tests/test_run_eval_metrics.py`. Several events still fall inside the 2020-2023 corpus gap with no matching data, which now correctly shows up as reduced coverage rather than a substituted, misleadingly "correct" result. Committed dated result files document this diagnostic fixture's output, not validated accuracy.
+**Sentiment:** the 15-entry fixture carries explicit `expected_sentiment` labels, but `run_eval.py` calls `GET /sentiment/{ticker}?date_to=<event_date>` and never submits the event description to the model - it measures corpus context around a known date, not whether the model interprets a described event. Accuracy and the Sharpe-style backtest use only genuinely produced, available predictions; an unavailable one is never substituted with its own expected label, and prediction coverage (`predictions_available / actionable`) is reported separately. Events inside the 2020-2023 gap show up as reduced coverage, not a misleading result. Committed dated result files document this fixture's output, not validated accuracy.
 
-**Bottom line:** retrieval quality is unmeasured; no validated sentiment or predictive-quality claim is made - the leakage fix above corrects how the diagnostic fixture is scored, it does not establish a new accuracy figure. Closing the gap needs the retrieval questions annotated and benchmarked, and corpus coverage extended to reduce how often "unavailable" is the answer.
+**Bottom line:** retrieval quality is unmeasured and no validated sentiment or predictive-quality claim is made here. Closing the gap needs the retrieval questions annotated, benchmarked, and corpus coverage extended so "unavailable" is the answer less often.
+
+**Local corpus evidence, not committed data:** `data/` is gitignored, so this describes this machine's local corpus, not what ships in or is reproducible from a fresh clone. `data/metadata.db` holds 42,078 chunks across the 12 configured tickers (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, JPM, GS, MS, SPY, QQQ), with SEC coverage split across 2015-2019 (backfill) and 2024-2026 (regular ingestion) - 2020 through 2023 has no data for any ticker. Constrained requests get documented no-data behavior: `/sentiment/{ticker}` returns `data_available: false`/`latest_score: null`, `/query` returns an empty `citations` array.
 
 ## API example
 
-Shapes below match `alphasignal/api/schemas.py`. Answer text, scores, and latency are **illustrative** - representative, not a captured live response.
+Shapes below match `alphasignal/api/schemas.py`. Answer text, scores, and latency are illustrative - representative, not a captured live response.
 
 ```bash
 curl -X POST http://localhost:8000/query \
@@ -157,41 +166,41 @@ uvicorn alphasignal.api.app:app --reload --host 0.0.0.0 --port 8000
 # docs at http://localhost:8000/docs
 ```
 
+**Environment variables:** `OPENAI_API_KEY` (required); `ALPHASIGNAL_API_KEY` (recommended before public exposure) - when set, every route except `/health` requires a matching `X-API-Key` header. Unset means open access, logged as a startup warning - fine locally, not for a reachable deployment, since open `/query`/`/ingest` would let anyone spend the OpenAI budget.
+
+**`config.yaml`** controls tickers, chunking, retrieval weights, model names, and storage paths.
+
+**Railway:** `Dockerfile`, `Procfile`, and `railway.toml` are internally consistent configuration; an actual deployment has not been exercised. `data/` is excluded from the Docker image, so a real deployment needs a persistent volume at `/app/data` or every redeploy wipes the corpus.
+
 ## Compact API reference
 
 | Endpoint | Purpose | Auth |
 |---|---|---|
-| `POST /query` | Hybrid retrieval + reranked, cited RAG answer | X-API-Key when configured |
+| `POST /query` | Hybrid retrieval and reranked, cited RAG answer | X-API-Key when configured |
 | `GET /sentiment/{ticker}` | Per-document sentiment signals, optional date range | X-API-Key when configured |
-| `GET /sentiment/{ticker}/summary` | Aggregate score, trend, count | X-API-Key when configured |
-| `POST /ingest/{ticker}` | Full ingest → chunk → embed → store | X-API-Key when configured |
+| `GET /sentiment/{ticker}/summary` | Aggregate score, trend, reliable-signal count | X-API-Key when configured |
+| `POST /ingest/{ticker}` | Full ingest, chunk, embed, store for one ticker | X-API-Key when configured |
 | `POST /ingest/batch` | Multi-ticker ingest, one BM25 rebuild | X-API-Key when configured |
 | `GET /health` | FAISS/SQLite load status, chunk count | None (healthcheck can't send headers) |
 | `GET /metrics` | Latency percentiles, error counts | X-API-Key when configured |
 
-Ticker allowlist checking isn't uniform: `GET /sentiment/{ticker}` (and `/summary`) and `POST /ingest/{ticker}` return `404` for an unknown ticker; `POST /ingest/batch` records it as `"failed"` instead; `POST /query`'s `ticker_filter` performs no allowlist check - an unrecognized value just yields no matching chunks.
-
-## Configuration and deployment status
-
-**Environment variables:** `OPENAI_API_KEY` (required); `ALPHASIGNAL_API_KEY` (recommended before public exposure) - when set, every route except `/health` requires a matching `X-API-Key` header. Unset means open access, logged as a startup warning - fine locally, not for a reachable deployment, since open `/query`/`/ingest` lets anyone spend the OpenAI budget.
-
-**`config.yaml`** controls tickers, chunking, retrieval weights/candidate pools, model names, and storage paths.
-
-**Railway:** `Dockerfile`, `Procfile`, and `railway.toml` are internally consistent, but **an actual deployment has not been exercised** - local configuration, not deployment evidence. `data/` is excluded from the Docker image; a real deployment needs a persistent volume at `/app/data`, or every redeploy wipes the corpus.
+Ticker handling is a deliberate policy, not one uniform shape. `GET /sentiment/{ticker}` (and `/summary`) and `POST /ingest/{ticker}` treat the ticker as a resource identifier, so an unconfigured ticker returns `404`. `POST /ingest/batch` instead records it as a per-item `"failed"` result, so one bad item doesn't discard the rest of the batch. `POST /query`'s `ticker_filter` is an optional search filter, not a resource identifier - an unrecognized value simply yields no matching chunks.
 
 ## Verification
 
-209 tests pass (`pytest`, ~32s), 93% statement coverage (`pytest --cov=alphasignal`). These tests check software correctness - schemas, citation-marker parsing, filter logic, caching, error handling, no-data semantics - not whether retrieval finds the right chunks or sentiment scores are accurate. Neither is currently measurable: see [Evaluation status](#evaluation-status) for why the sentiment set doesn't substitute for accuracy measurement and why the retrieval golden set remains unannotated.
+335 tests pass (`pytest`), the codebase is Ruff-clean, and it is Black-formatted. These tests check software correctness - schemas, citation-marker parsing, storage consistency, filter logic, caching, degraded-state handling, no-data semantics - not whether retrieval finds the right chunks or sentiment scores are accurate. Neither is currently measurable; see [Evaluation status](#evaluation-status) for why the sentiment fixture doesn't substitute for accuracy measurement and why the retrieval golden set remains unannotated.
 
 ## Known limitations
 
-- **Retrieval quality is unmeasured; sentiment quality is unvalidated** - see [Evaluation status](#evaluation-status).
-- **2020–2023 corpus gap.** No ingested data exists for any ticker in this window; requests explicitly constrained to that period get `/sentiment/{ticker}` returning `data_available: false` and `/query` returning an empty-citations result, rather than a wrong answer.
-- **Chunking boundary rules.** `target_tokens` now drives the ordinary boundary (fixed 2026-09-11; previously configured but unused); `max_tokens` remains the hard ceiling. A short document can still yield a chunk below `min_tokens`, and a short trailing fragment can still merge into the previous chunk, pushing it past `max_tokens` (deliberate: dropping real content would be worse). Overlap is a maximum budget for complete trailing sentences, not a guaranteed floor; a hard-split oversized sentence gets none.
-- **Chunk IDs are source-derived, not content-derived** (doc/article + section + position, not the text itself) - a content fingerprint (`content_hash`, sha256 of the chunk text) is computed alongside and used by the embedding cache and FAISS vector store to detect when text changed under an unchanged chunk_id, so re-ingestion re-embeds and replaces the stale vector instead of silently keeping it (fixed 2026-09-11). Replacing a vector rebuilds the local FAISS index from its current vectors plus the new one, since `IndexFlatIP` has no update/remove-by-position primitive - documented, deliberate trade-off, fine at this project's local/batch scale, not a design for high-churn or large-scale deployment.
-- **Railway deployment unexercised** - configuration is internally consistent, but no live deployment has been run.
-- **Scale trade-offs typical of an MVP:** synchronous ingestion (~45s/ticker) uses plain `def` handlers, which FastAPI normally runs in its thread pool rather than blocking the event loop directly, but a long ingestion request still consumes worker capacity and there is no queued/background ingestion architecture; no `/query` response caching (sentiment is cached per-chunk in memory for 24h, lost on restart); single-node, in-memory FAISS with no distributed scaling.
-- **AlphaLive integration is a local runtime test, not live-trading validation**, and only gates BUY/SELL signals, never exits.
+- **Retrieval quality is unmeasured; sentiment quality is unvalidated.** See [Evaluation status](#evaluation-status).
+- **2020-2023 corpus gap** - no ingested data for any ticker; constrained requests get documented no-data behavior, not a wrong answer.
+- **Local, gitignored corpus evidence** - the 42,078-chunk figure describes this machine only, not a committed or fresh-clone-reproducible dataset.
+- **No distributed transaction across SQLite, FAISS, and the embedding cache** - recovery relies on idempotent re-ingestion and query-time exclusion of unverified/mismatched vectors.
+- **FAISS vector replacement is O(index size)** - `IndexFlatIP` has no update/remove-by-position primitive, so replacement rebuilds the index; fine at this scale, not for very large deployments.
+- **A fully empty source needs the caller to supply its identity/prefix explicitly** to be cleaned up; production paths already do this.
+- **Synchronous ingestion (~45s/ticker)** runs in FastAPI's thread pool but still consumes worker capacity; no queued/background ingestion, no `/query` caching, and single-node in-memory FAISS with no distributed or vector-database scaling.
+- **Railway deployment is unexercised** - configuration is consistent, but no live deployment has been run.
+- **AlphaLive integration is a local runtime test, not live-trading validation**, and only gates BUY/SELL, never exits.
 - **AlphaLab is not connected** - it calls `yfinance` directly.
 
 ## License and contributions
