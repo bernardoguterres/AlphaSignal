@@ -1,7 +1,7 @@
 """Tests for sentiment extraction."""
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -441,10 +441,11 @@ def test_sentiment_positive_keywords_extracted(test_config, test_chunk):
         assert len(result.key_positive) <= 3  # Max 3 as per spec
 
 
-def test_sentiment_cache_ttl_respected(test_config, test_chunk):
-    """Test that sentiment cache TTL is respected."""
+def test_sentiment_cache_keyed_by_content_not_time(test_config, test_chunk, tmp_path):
+    """The score cache is persistent and keyed by (content hash, model,
+    prompt version): unchanged text is never re-scored; changed text under
+    the same chunk_id is. (Replaces the in-memory 24h TTL cache.)"""
     with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
-        # Mock OpenAI response
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(
@@ -456,26 +457,20 @@ def test_sentiment_cache_ttl_respected(test_config, test_chunk):
                 "summary": "Neutral sentiment.",
             }
         )
-
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
         MockOpenAI.return_value = mock_client
+        cfg = {**test_config, "sentiment": {"cache_path": str(tmp_path / "c.json")}}
+        extractor = SentimentExtractor(cfg)
 
-        extractor = SentimentExtractor(test_config)
-
-        # First call
+        extractor.extract_sentiment(test_chunk)
         extractor.extract_sentiment(test_chunk)
         assert mock_client.chat.completions.create.call_count == 1
 
-        # Manually expire cache by modifying cached timestamp
-        cache_hours = extractor.cache_hours
-        old_timestamp = datetime.now() - timedelta(hours=cache_hours + 1)
-        if test_chunk.chunk_id in extractor._cache:
-            cached_result, _ = extractor._cache[test_chunk.chunk_id]
-            extractor._cache[test_chunk.chunk_id] = (cached_result, old_timestamp)
+        from dataclasses import replace
 
-        # Second call (cache expired)
-        extractor.extract_sentiment(test_chunk)
-
-        # Should have called OpenAI a second time
+        changed = replace(
+            test_chunk, text=test_chunk.text + " Updated.", content_hash=""
+        )
+        extractor.extract_sentiment(changed)
         assert mock_client.chat.completions.create.call_count == 2
