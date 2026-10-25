@@ -1,0 +1,372 @@
+{
+ "meta": {
+  "status": "DRAFT - model-drafted labels, quotes verified verbatim against the frozen corpus; not an independent gold standard. Items with review=true need a human decision.",
+  "created": "2026-10-19",
+  "corpus": {
+   "description": "Snapshot of the disposable AlphaSignal corpus copy (real data/ plus a bounded MSFT/NVDA/JPM ingest), frozen before any query was run.",
+   "chunks": 42568,
+   "tickers": 12,
+   "date_range": "2015-01-26..2026-10-19",
+   "sha256": [
+    "fa2788a8ebc31423e7f9428272b9cbb1190b3ff2a9bac2a29d807c3fc1132c4e  data/embeddings_cache/cache.json",
+    "76db296e874d2746b3505818cbf0861fb09938aefa040fa63115d3cfb06d9ee1  data/embeddings_cache/cache.npy",
+    "432067c666a22af0766bdabbb6bed4702983b1f5ed1724ba237c5970af4e748e  data/faiss_index/chunk_ids.g25.json",
+    "44d928805d4d7c7587c39259f20b342a7513c9cebb587dcd091e02078383f6fe  data/faiss_index/chunk_ids.g26.json",
+    "78fbc979e75b9f76e5610a5895bc37241a0697fa55347dc8035d20b97df8f98a  data/faiss_index/index.g25.faiss",
+    "2cb561d205f0ce56b18da071a499b8b112ec2762797dffdb39a4d7b9cc4c2c32  data/faiss_index/index.g26.faiss",
+    "4176e7e977f2ab89e4c4ac164450d4f444a23ce36b69b8b76fa3d77cb82308c2  data/faiss_index/manifest.json",
+    "5a6797cf330bb54850eb2283438879b295726d97d94cd8516bc3369fe1f27d66  data/metadata.db"
+   ]
+  },
+  "query_protocol": {
+   "endpoint": "POST /query/",
+   "ticker_filter": "item ticker",
+   "date_filter": null,
+   "top_k": 5,
+   "note": "No date filter, so reporting-period distinctions are tested. Labels were frozen before the first run; nothing was tuned on this set. Treat it as a development set from now on - hold out a fresh split before claiming a benchmark."
+  },
+  "known_corpus_limitation": "Financial-statement tables are not in the corpus (e.g. 0 chunks of MSFT's FY2025 10-K mention net income); numerical questions can only be answered from figures stated in prose."
+ },
+ "items": [
+  {
+   "id": "F1",
+   "category": "direct_fact",
+   "ticker": "JPM",
+   "question": "How many employees did JPMorganChase have globally as of December 31, 2024?",
+   "expected": "317,233 employees",
+   "gold": [
+    [
+     "jpm_10k_d632c9cb_0019",
+     "As of December 31, 2024, JPMorganChase had 317,233 employees globally"
+    ]
+   ],
+   "doc": "JPM 10-K FY2024 (FYE 2024-12-31), accession 0000019617-25-000270, filed 2025-02-14",
+   "period": "as of 2024-12-31",
+   "notes": "",
+   "review": false
+  },
+  {
+   "id": "F2",
+   "category": "direct_fact",
+   "ticker": "MSFT",
+   "question": "What was Microsoft Cloud revenue in fiscal year 2025?",
+   "expected": "$168.9 billion (up 23%)",
+   "gold": [
+    [
+     "msft_10k_4ec90154_0067",
+     "Microsoft Cloud revenue increased 23% to $168.9 billion"
+    ],
+    [
+     "msft_10k_4ec90154_0125",
+     "was $168.9 billion, $137.7 billion, and $111.6 billion in fiscal years 2025, 2024, and 2023, respectively"
+    ]
+   ],
+   "doc": "MSFT 10-K FY2025 (FYE 2025-06-30), accession 0000950170-25-100235, filed 2025-07-30",
+   "period": "FY2025",
+   "notes": "",
+   "review": false
+  },
+  {
+   "id": "F3",
+   "category": "direct_fact",
+   "ticker": "NVDA",
+   "question": "In fiscal year 2026, what share of NVIDIA's total revenue came from its largest direct customer?",
+   "expected": "22% (a second direct customer was 14%)",
+   "gold": [
+    [
+     "nvda_10k_8d772322_0057",
+     "For fiscal year 2026, sales to one direct customer represented 22% of total revenue"
+    ]
+   ],
+   "doc": "NVDA 10-K FY2026 (FYE late Jan 2026), accession 0001045810-26-000021, filed 2026-02-25",
+   "period": "FY2026",
+   "notes": "The filing does not name the customer; 'largest' is implied by 22% > 14%.",
+   "review": false
+  },
+  {
+   "id": "F4",
+   "category": "direct_fact",
+   "ticker": "MSFT",
+   "question": "How many Microsoft 365 Consumer subscribers did Microsoft report for fiscal year 2025?",
+   "expected": "89.0 million (subscriber growth of 8%)",
+   "gold": [
+    [
+     "msft_10k_4ec90154_0073",
+     "Microsoft 365 Consumer subscriber growth of 8% to 89.0 million"
+    ]
+   ],
+   "doc": "MSFT 10-K FY2025 (FYE 2025-06-30), accession 0000950170-25-100235, filed 2025-07-30",
+   "period": "FY2025",
+   "notes": "",
+   "review": false
+  },
+  {
+   "id": "P1",
+   "category": "period_distinction",
+   "ticker": "MSFT",
+   "question": "How many of Microsoft's full-time employees were in the U.S. as of June 30, 2024?",
+   "expected": "126,000 (of approximately 228,000)",
+   "gold": [
+    [
+     "msft_10k_25fdc2e5_0010",
+     "As of June 30, 2024, we employed approximately 228,000 people on a full-time basis, 126,000 in the U.S. and 102,000 internationally"
+    ]
+   ],
+   "doc": "MSFT 10-K FY2024 (FYE 2024-06-30), accession 0000950170-24-087843, filed 2024-07-30",
+   "period": "as of 2024-06-30",
+   "notes": "Trap: the FY2025 10-K gives 125,000 U.S. employees as of June 30, 2025 with the same 228,000 total.",
+   "review": false
+  },
+  {
+   "id": "P2",
+   "category": "period_distinction",
+   "ticker": "NVDA",
+   "question": "How many employees did NVIDIA have at the end of fiscal year 2025?",
+   "expected": "Approximately 36,000 employees in 38 countries",
+   "gold": [
+    [
+     "nvda_10k_86184b4a_0025",
+     "As of the end of fiscal year 2025, we had approximately 36,000 employees in 38 countries"
+    ]
+   ],
+   "doc": "NVDA 10-K FY2025 (FYE late Jan 2025), accession 0001045810-25-000023, filed 2025-02-26",
+   "period": "end of FY2025",
+   "notes": "Trap: FY2026 10-K reports approximately 42,000.",
+   "review": false
+  },
+  {
+   "id": "P3",
+   "category": "period_distinction",
+   "ticker": "NVDA",
+   "question": "By how much did NVIDIA's Data Center revenue grow in fiscal year 2025 compared with the prior year?",
+   "expected": "Up 142% year on year",
+   "gold": [
+    [
+     "nvda_10k_86184b4a_0104",
+     "Data Center revenue for fiscal year 2025 was up 142% from a year ago"
+    ]
+   ],
+   "doc": "NVDA 10-K FY2025 (FYE late Jan 2025), accession 0001045810-25-000023, filed 2025-02-26",
+   "period": "FY2025",
+   "notes": "Trap: FY2026 Data Center growth was 68%. The dollar amount is not in the corpus.",
+   "review": false
+  },
+  {
+   "id": "P4",
+   "category": "period_distinction",
+   "ticker": "NVDA",
+   "question": "What was NVIDIA's total revenue for fiscal year 2025?",
+   "expected": "$130.5 billion (up 114%)",
+   "gold": [
+    [
+     "nvda_10k_86184b4a_0104",
+     "Revenue for fiscal year 2025 was $130.5 billion, up 114% from a year ago"
+    ]
+   ],
+   "doc": "NVDA 10-K FY2025 (FYE late Jan 2025), accession 0001045810-25-000023, filed 2025-02-26",
+   "period": "FY2025",
+   "notes": "Trap: FY2026 revenue was $215.9 billion. The FY2026 10-K may also state FY2025 revenue in a table that the corpus lacks.",
+   "review": false
+  },
+  {
+   "id": "N1",
+   "category": "numerical",
+   "ticker": "MSFT",
+   "question": "What was Microsoft Cloud revenue in fiscal year 2023?",
+   "expected": "$111.6 billion",
+   "gold": [
+    [
+     "msft_10k_4ec90154_0125",
+     "was $168.9 billion, $137.7 billion, and $111.6 billion in fiscal years 2025, 2024, and 2023, respectively"
+    ],
+    [
+     "msft_10k_25fdc2e5_0142",
+     "was $137.4 billion, $111.6 billion, and $91.4 billion in fiscal years 2024, 2023, and 2022, respectively"
+    ]
+   ],
+   "doc": "MSFT 10-K FY2025 (FYE 2025-06-30), accession 0000950170-25-100235, filed 2025-07-30; also MSFT 10-K FY2024 (FYE 2024-06-30), accession 0000950170-24-087843, filed 2024-07-30",
+   "period": "FY2023 (comparative in FY2025 and FY2024 10-Ks)",
+   "notes": "Positional parsing of a three-year list. Both filings give $111.6B for FY2023, but FY2024 differs between them ($137.4B as originally reported vs $137.7B recast in the FY2025 10-K) - a restatement trap if filings are blended.",
+   "review": true
+  },
+  {
+   "id": "N2",
+   "category": "numerical",
+   "ticker": "NVDA",
+   "question": "What was NVIDIA's defined contribution plan expense in fiscal year 2024?",
+   "expected": "$255 million",
+   "gold": [
+    [
+     "nvda_10k_8d772322_0159",
+     "Our contribution expense for fiscal years 2026, 2025, and 2024 was $442 million, $314 million, and $255 million"
+    ],
+    [
+     "nvda_10k_86184b4a_0165",
+     "Our contribution expense for fiscal years 2025, 2024, and 2023 was $314 million, $255 million, and $227 million"
+    ]
+   ],
+   "doc": "NVDA 10-K FY2026 (FYE late Jan 2026), accession 0001045810-26-000021, filed 2026-02-25; also NVDA 10-K FY2025 (FYE late Jan 2025), accession 0001045810-25-000023, filed 2025-02-26",
+   "period": "FY2024",
+   "notes": "Positional parsing across two filings with shifted year lists.",
+   "review": false
+  },
+  {
+   "id": "N3",
+   "category": "numerical",
+   "ticker": "JPM",
+   "question": "What was JPMorganChase's firmwide total net revenue and net interest income for 2024?",
+   "expected": "Total net revenue $177.6 billion; NII $92.6 billion",
+   "gold": [
+    [
+     "jpm_10k_d632c9cb_0122",
+     "Total net revenue was $177.6 billion, up 12%, reflecting: –Net interest income (“NII”) of $92.6 billion"
+    ]
+   ],
+   "doc": "JPM 10-K FY2024 (FYE 2024-12-31), accession 0000019617-25-000270, filed 2025-02-14",
+   "period": "FY2024",
+   "notes": "Trap: segment-level 'Net revenue was ...' figures ($71.5B, $70.1B, ...) appear in nearby chunks without segment names.",
+   "review": false
+  },
+  {
+   "id": "N4",
+   "category": "numerical_table_absent",
+   "ticker": "MSFT",
+   "question": "What was Microsoft's GAAP net income for fiscal year 2025?",
+   "expected": "ABSTAIN (the figure is in the filing's income-statement table, which is not in the corpus)",
+   "gold": [],
+   "doc": "MSFT 10-K FY2025 (FYE 2025-06-30), accession 0000950170-25-100235, filed 2025-07-30",
+   "period": "FY2025",
+   "notes": "Distractor: the FY2026 10-K says prior-year (FY2025) net income was reduced by $3.6 billion by OpenAI losses - an adjustment, not net income.",
+   "review": true
+  },
+  {
+   "id": "N5",
+   "category": "numerical_table_absent",
+   "ticker": "NVDA",
+   "question": "What was NVIDIA's Data Center segment revenue in dollars for fiscal year 2026?",
+   "expected": "ABSTAIN (only the growth rate, 68%, is in the corpus; the revenue table is absent)",
+   "gold": [
+    [
+     "nvda_10k_8d772322_0095",
+     "Data Center revenue for fiscal year 2026 was up 68% from a year ago"
+    ]
+   ],
+   "doc": "NVDA 10-K FY2026 (FYE late Jan 2026), accession 0001045810-26-000021, filed 2026-02-25",
+   "period": "FY2026",
+   "notes": "A good answer gives the 68% growth and says the dollar amount is not available.",
+   "review": true
+  },
+  {
+   "id": "U1",
+   "category": "unanswerable",
+   "ticker": "NVDA",
+   "question": "What was the total compensation of NVIDIA's CEO Jensen Huang in fiscal year 2026?",
+   "expected": "ABSTAIN (executive pay is in the proxy statement, not the 10-K; the 10-K only gives his biography)",
+   "gold": [],
+   "doc": "NVDA 10-K FY2026 (FYE late Jan 2026), accession 0001045810-26-000021, filed 2026-02-25",
+   "period": "FY2026",
+   "notes": "",
+   "review": false
+  },
+  {
+   "id": "U2",
+   "category": "unanswerable",
+   "ticker": "JPM",
+   "question": "How many JPMorganChase branches were located in Brazil at the end of 2024?",
+   "expected": "ABSTAIN (not stated in the corpus)",
+   "gold": [],
+   "doc": "JPM 10-K FY2024 (FYE 2024-12-31), accession 0000019617-25-000270, filed 2025-02-14",
+   "period": "2024-12-31",
+   "notes": "Not checked exhaustively: a regional breakdown exists in the filing (in a table not in the corpus); branch counts by country were not found by keyword search.",
+   "review": true
+  },
+  {
+   "id": "U3",
+   "category": "unanswerable",
+   "ticker": "MSFT",
+   "question": "What quarterly dividend per share did Microsoft declare in March 2027?",
+   "expected": "ABSTAIN (future date; no such filing exists)",
+   "gold": [],
+   "doc": "none",
+   "period": "2027-03",
+   "notes": "",
+   "review": false
+  },
+  {
+   "id": "M1",
+   "category": "false_premise",
+   "ticker": "MSFT",
+   "question": "Why did Microsoft's total revenue decline in fiscal year 2025?",
+   "expected": "Reject the premise: revenue increased $36.6 billion or 15%, with growth across each segment",
+   "gold": [
+    [
+     "msft_10k_4ec90154_0071",
+     "Revenue increased $36.6 billion or 15% with growth across each of our segments"
+    ]
+   ],
+   "doc": "MSFT 10-K FY2025 (FYE 2025-06-30), accession 0000950170-25-100235, filed 2025-07-30",
+   "period": "FY2025",
+   "notes": "",
+   "review": false
+  },
+  {
+   "id": "M2",
+   "category": "false_premise",
+   "ticker": "NVDA",
+   "question": "How many employees did NVIDIA lay off during fiscal year 2026?",
+   "expected": "Reject or flag the premise: no layoffs are reported; headcount rose from about 36,000 (end FY2025) to about 42,000 (end FY2026)",
+   "gold": [
+    [
+     "nvda_10k_8d772322_0021",
+     "As of the end of fiscal year 2026, we had approximately 42,000 employees in 38 countries"
+    ],
+    [
+     "nvda_10k_86184b4a_0025",
+     "As of the end of fiscal year 2025, we had approximately 36,000 employees in 38 countries"
+    ]
+   ],
+   "doc": "NVDA 10-K FY2026 (FYE late Jan 2026), accession 0001045810-26-000021, filed 2026-02-25; NVDA 10-K FY2025 (FYE late Jan 2025), accession 0001045810-25-000023, filed 2025-02-26",
+   "period": "FY2026",
+   "notes": "Corpus has 0 NVDA chunks mentioning layoff/workforce reduction (keyword check). A plain 'not stated' is acceptable; inventing a number is wrong.",
+   "review": true
+  },
+  {
+   "id": "M3",
+   "category": "false_premise",
+   "ticker": "JPM",
+   "question": "What was JPMorganChase's net loss in 2024?",
+   "expected": "Reject the premise: JPMorganChase reported net income of $58.5 billion for 2024, up 18%",
+   "gold": [
+    [
+     "jpm_10k_d632c9cb_0122",
+     "JPMorganChase reported net income of $58.5 billion for 2024, up 18%"
+    ]
+   ],
+   "doc": "JPM 10-K FY2024 (FYE 2024-12-31), accession 0000019617-25-000270, filed 2025-02-14",
+   "period": "FY2024",
+   "notes": "",
+   "review": false
+  },
+  {
+   "id": "M4",
+   "category": "false_premise",
+   "ticker": "MSFT",
+   "question": "What caused Microsoft's full-time headcount to fall from 228,000 to 221,000 by June 30, 2025?",
+   "expected": "Reject the premise: headcount was approximately 228,000 at both June 30, 2024 and June 30, 2025",
+   "gold": [
+    [
+     "msft_10k_4ec90154_0013",
+     "As of June 30, 2025, we employed approximately 228,000 people on a full-time basis"
+    ],
+    [
+     "msft_10k_25fdc2e5_0010",
+     "As of June 30, 2024, we employed approximately 228,000 people on a full-time basis"
+    ]
+   ],
+   "doc": "MSFT 10-K FY2025 (FYE 2025-06-30), accession 0000950170-25-100235, filed 2025-07-30; MSFT 10-K FY2024 (FYE 2024-06-30), accession 0000950170-24-087843, filed 2024-07-30",
+   "period": "FY2025",
+   "notes": "",
+   "review": false
+  }
+ ]
+}

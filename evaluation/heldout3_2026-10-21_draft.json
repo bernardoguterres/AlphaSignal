@@ -1,0 +1,218 @@
+{
+ "meta": {
+  "status": "DRAFT - third evaluation set, written and source-checked 2026-10-21 BEFORE any run with the final code; run once after freezing. Model-drafted labels checked against raw filing rows or corpus chunks; not independent human labels.",
+  "corpus": "stage D (frozen 2026-10-19 prose + reporting periods + ch3 table chunks for NVDA/MSFT/JPM 2024-2026 filings)",
+  "scoring": "Retrieval by content: a top-5 chunk from a listed accession containing all 'contains' strings (any listed evidence suffices). Answers judged by hand against the cited source text.",
+  "independence": "No fact repeats an earlier set's question; overlapping categories are noted per item. The earlier held-out set (heldout_2026-10-20) was inspected during this pass and is now development data."
+ },
+ "items": [
+  {
+   "id": "X1",
+   "category": "numerical_table",
+   "ticker": "MSFT",
+   "question": "What was Microsoft's total revenue in fiscal year 2025?",
+   "expected": "$281,724 million (fiscal year ended June 30, 2025)",
+   "evidence": [
+    {
+     "accession": "0000950170-25-100235",
+     "doc": "MSFT 10-K FY2025, filed 2025-07-30",
+     "contains": [
+      "281,724"
+     ],
+     "source_check": "raw income-statement row: Total revenue 281,724 | 245,122 | 211,915"
+    }
+   ],
+   "overlap": "table figure, like H6 (MSFT FY2024 revenue) of the previous held-out set",
+   "review": false
+  },
+  {
+   "id": "X2",
+   "category": "numerical_table",
+   "ticker": "NVDA",
+   "question": "What was NVIDIA's total revenue for fiscal year 2026?",
+   "expected": "$215,938 million (about $215.9 billion), up 65%",
+   "evidence": [
+    {
+     "accession": "0001045810-26-000021",
+     "doc": "NVDA 10-K FY2026, filed 2026-02-25",
+     "contains": [
+      "215,938"
+     ],
+     "source_check": "raw summary row: Revenue 215,938 | 130,497 | Up 65%"
+    },
+    {
+     "accession": "0001045810-26-000021",
+     "doc": "same filing, MD&A prose",
+     "contains": [
+      "215.9"
+     ],
+     "source_check": "prose chunk nvda_10k_8d772322_0095 'Revenue for fiscal year 2026 was $215...'"
+    }
+   ],
+   "overlap": "same fact type as dev P4 (FY2025 revenue)",
+   "review": false
+  },
+  {
+   "id": "X3",
+   "category": "numerical_table",
+   "ticker": "JPM",
+   "question": "What was JPMorganChase's net income in the second quarter of 2026?",
+   "expected": "$21,155 million",
+   "evidence": [
+    {
+     "accession": "0001628280-26-054343",
+     "doc": "JPM 10-Q quarter ended 2026-06-30, filed 2026-08-06",
+     "contains": [
+      "21,155"
+     ],
+     "source_check": "raw highlights row: Net income 21,155 (2Q26) | 16,494 (1Q26) | ... | 37,649 / 29,630 (six months); 21,155 + 16,494 = 37,649"
+    }
+   ],
+   "traps": "1Q26 $16,494m; six months 2026 $37,649m; 2Q25 $14,987m",
+   "overlap": "quarter table like H7",
+   "review": false
+  },
+  {
+   "id": "X4",
+   "category": "comparative_attribution",
+   "ticker": "NVDA",
+   "question": "What was NVIDIA's revenue for fiscal year 2023?",
+   "expected": "$26,974 million, reported as a comparative in a later 10-K (FY2024 or FY2025); the fiscal 2023 10-K itself is not in the corpus",
+   "evidence": [
+    {
+     "accession": "0001045810-24-000029",
+     "doc": "NVDA 10-K FY2024 (comparative column Jan 29, 2023)",
+     "contains": [
+      "26,974"
+     ],
+     "source_check": "raw income-statement row: Revenue 60,922 | 26,974 | 26,914"
+    },
+    {
+     "accession": "0001045810-25-000023",
+     "doc": "NVDA 10-K FY2025 (comparative column Jan 29, 2023)",
+     "contains": [
+      "26,974"
+     ],
+     "source_check": "stage table chunk nvda_10k_86184b4a (Year Ended Jan 29, 2023 = 26,974)"
+    }
+   ],
+   "traps": "FY2022 $26,914m (adjacent column); FY2024 $60,922m",
+   "requires": "attribution to the later filing",
+   "review": false
+  },
+  {
+   "id": "X5",
+   "category": "comparative_attribution",
+   "ticker": "MSFT",
+   "question": "What was Microsoft's total revenue in fiscal year 2023?",
+   "expected": "$211,915 million, from the comparative column of a later 10-K (FY2024 or FY2025); the fiscal 2023 10-K is not in the corpus",
+   "evidence": [
+    {
+     "accession": "0000950170-24-087843",
+     "doc": "MSFT 10-K FY2024",
+     "contains": [
+      "211,915"
+     ],
+     "source_check": "raw row: Total revenue 245,122 | 211,915 | 198,270"
+    },
+    {
+     "accession": "0000950170-25-100235",
+     "doc": "MSFT 10-K FY2025",
+     "contains": [
+      "211,915"
+     ],
+     "source_check": "raw row: Total revenue 281,724 | 245,122 | 211,915"
+    }
+   ],
+   "traps": "FY2022 $198,270m",
+   "requires": "attribution to the later filing",
+   "review": false
+  },
+  {
+   "id": "X6",
+   "category": "false_premise",
+   "ticker": "MSFT",
+   "question": "Why did Microsoft's net income decline in fiscal year 2024?",
+   "expected": "Reject the premise: fiscal 2024 net income rose 22% to $88,136 million from $72,361 million",
+   "evidence": [
+    {
+     "accession": "0000950170-24-087843",
+     "doc": "MSFT 10-K FY2024",
+     "contains": [
+      "88,136"
+     ],
+     "source_check": "raw row: Net income 88,136 | 72,361 | 22%"
+    }
+   ],
+   "overlap": "false-premise template like M1/H4; different fact",
+   "review": false
+  },
+  {
+   "id": "X7",
+   "category": "period_distinction",
+   "ticker": "GOOGL",
+   "question": "How many employees did Alphabet have as of December 31, 2024?",
+   "expected": "183,323",
+   "evidence": [
+    {
+     "accession": "0001652044-25-000014",
+     "doc": "GOOGL 10-K FY2024, filed 2025-02-05",
+     "contains": [
+      "183,323"
+     ],
+     "source_check": "corpus chunk googl_10k_e888a2bd_0079"
+    }
+   ],
+   "traps": "2023: 182,502; 2025: 190,820",
+   "review": false
+  },
+  {
+   "id": "X8",
+   "category": "period_distinction",
+   "ticker": "AAPL",
+   "question": "By how much did Apple's total net sales change in the first quarter of fiscal 2024 compared with the same quarter a year earlier?",
+   "expected": "Increased 2%, or $2.4 billion (the quarter had 13 weeks versus 14 a year earlier)",
+   "evidence": [
+    {
+     "accession": "0000320193-24-000006",
+     "doc": "AAPL 10-Q Q1 FY2024 (quarter ended 2023-12-30), filed 2024-02-02",
+     "contains": [
+      "$2.4 billion"
+     ],
+     "source_check": "corpus chunk aapl_10q_f0768a32_0013"
+    }
+   ],
+   "review": true,
+   "review_note": "Whether the 13-vs-14-week caveat is required for 'correct' is a judgment call; scored correct without it."
+  },
+  {
+   "id": "X9",
+   "category": "unanswerable",
+   "ticker": "JPM",
+   "question": "What was JPMorganChase's net income in 2020?",
+   "expected": "Abstain: 2020 results are not in the corpus (2020-2023 filings absent; the FY2023 10-K's tables cover 2021-2023)",
+   "evidence": [],
+   "review": true,
+   "review_note": "Absence checked by searching every JPM raw filing for the 2020 figure (29,131) and the corpus prose; not exhaustive over every table cell."
+  },
+  {
+   "id": "X10",
+   "category": "prose_not_displaced",
+   "ticker": "NVDA",
+   "question": "How many employees did NVIDIA have at the end of fiscal year 2026?",
+   "expected": "Approximately 42,000 employees in 38 countries",
+   "evidence": [
+    {
+     "accession": "0001045810-26-000021",
+     "doc": "NVDA 10-K FY2026",
+     "contains": [
+      "42,000"
+     ],
+     "source_check": "corpus chunk nvda_10k_8d772322_0021"
+    }
+   ],
+   "overlap": "dev P2 asks the FY2025 figure; dev M2's expected answer mentions this fact",
+   "review": false
+  }
+ ]
+}

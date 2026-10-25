@@ -1,0 +1,61 @@
+{
+ "note": "Each evaluation file is attached to the corpus version it was labelled/run against. Snapshots live in AlphaSignal/data/versions/<corpus_version>/ (gitignored, local); verify with `python -m alphasignal.scripts.corpus_version verify data/versions/<v>`. Historical result files are never rewritten; labels move to a new corpus only through a reviewed mapping or a new label version.",
+ "versions": {
+  "cv-b90ce82b7c013edf": {
+   "description": "frozen 2026-10-19 evaluation corpus (42,568 chunks; matches the SHA-256 manifest in eval_set_2026-10-19_draft.json meta)",
+   "files": [
+    "eval_set_2026-10-19_draft.json",
+    "eval_run_2026-10-19.json"
+   ]
+  },
+  "cv-c934a2b4a2ea545a": {
+   "description": "stage C 2026-10-20: cv-b90ce82b7c013edf prose (byte-identical, so dev gold chunk ids map 1:1) + reporting-period backfill + 15,065 table chunks (NVDA/MSFT/JPM 2024-2026; ids <source>_tNNNN)",
+   "files": [
+    "eval_run_2026-10-20_dev.json",
+    "heldout_2026-10-20_draft.json",
+    "heldout_run_2026-10-20.json"
+   ],
+   "label_mapping_from_cv-b90ce82b7c013edf": "identity for all 20 dev items (every gold chunk id present with identical text; verified 2026-10-20)"
+  },
+  "cv-5417735943db7e47": {
+   "description": "the real data/ corpus as of 2026-10-21 (42,078 chunks, period backfill applied) - the active production-local version; backup snapshot with embedding cache",
+   "files": []
+  },
+  "cv-0c6efe22a8359408": {
+   "description": "stage D 2026-10-21: cv-b90ce82b7c013edf prose (byte-identical) + reporting periods + 12,598 ch3 table chunks (NVDA/MSFT/JPM 2024-2026)",
+   "files": [
+    "eval_labels_tables_v2_2026-10-21.json",
+    "eval_comparison_2026-10-21_dev.json",
+    "heldout3_2026-10-21_draft.json",
+    "heldout3_run_2026-10-21.json"
+   ],
+   "label_mapping_from_cv-b90ce82b7c013edf": "identity for prose gold ids; N4/N5 answerability overridden in eval_labels_tables_v2_2026-10-21.json"
+  },
+  "cv-ff3d4642482e1657": {
+   "description": "stage B 2026-10-21: cv-b90ce82b7c013edf + reporting periods, no tables (evidence-effect comparison)",
+   "files": [
+    "eval_comparison_2026-10-21_dev.json (R3)"
+   ]
+  },
+  "cv-6483342e98be8811": {
+   "description": "stage F 2026-10-21: frozen prose + reporting periods + 12,990 ch7 table chunks with accounting basis",
+   "files": [
+    "final4_2026-10-21_draft.json",
+    "final4_run_2026-10-21.json",
+    "basis_pass_dev_2026-10-21.json"
+   ]
+  },
+  "cv-3951a7179fcc5b42": {
+   "description": "stage E 2026-10-21: as F but ch5 tables (before the fresh-review fixes)",
+   "files": [
+    "basis_pass_dev_2026-10-21.json (first fix run)"
+   ]
+  }
+ },
+ "status_of_sets": {
+  "eval_set_2026-10-19_draft.json": "development",
+  "heldout_2026-10-20_draft.json": "development since 2026-10-21 (inspected; guided the table-lane design)",
+  "heldout3_2026-10-21_draft.json": "run once 2026-10-21 after freezing; now inspected, so development for any further work",
+  "final4_2026-10-21_draft.json": "run once after freezing 2026-10-21; now inspected"
+ }
+}

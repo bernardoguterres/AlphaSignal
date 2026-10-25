@@ -1,0 +1,215 @@
+{
+ "meta": {
+  "status": "DRAFT - separate held-out set. Labels drafted by the model and each checked against the source text (frozen corpus chunk or the raw filing HTML table row); NOT independent human labels. Items with review=true need a human decision.",
+  "created": "2026-10-20",
+  "protocol": "Written before any run on it. Not used for tuning: run once, after every code change for this pass was final. Retrieval is scored by content (a top-5 chunk from the stated document containing every 'contains' string), not by chunk id, because table chunks are new and prose chunk ids are positional.",
+  "corpus": "Stage-C evaluation corpus: the frozen 2026-10-19 corpus (prose unchanged) + reporting-period backfill + table chunks for NVDA/MSFT/JPM 2024-2026 filings.",
+  "independence": "Different facts from the 20-question development set; companies AAPL/AMZN/TSLA/META were not in the development set."
+ },
+ "items": [
+  {
+   "id": "H1",
+   "category": "period_distinction",
+   "ticker": "AAPL",
+   "question": "How many full-time equivalent employees did Apple have at the end of fiscal year 2025?",
+   "expected": "Approximately 166,000 (as of September 27, 2025)",
+   "evidence": [
+    {
+     "accession": "0000320193-25-000079",
+     "doc": "AAPL 10-K FY2025 (FYE 2025-09-27), filed 2025-10-31",
+     "contains": [
+      "166,000"
+     ],
+     "quote": "As of September 27, 2025, the Company had approximately 166,000 full-time equivalent employees",
+     "source_check": "corpus chunk aapl_10k_c91db794_0006 (frozen)"
+    }
+   ],
+   "traps": "FY2024 10-K: approximately 164,000 as of September 28, 2024",
+   "review": false
+  },
+  {
+   "id": "H2",
+   "category": "period_distinction",
+   "ticker": "AMZN",
+   "question": "How many full-time and part-time employees did Amazon employ as of December 31, 2024?",
+   "expected": "Approximately 1,556,000",
+   "evidence": [
+    {
+     "accession": "0001018724-25-000004",
+     "doc": "AMZN 10-K FY2024, filed 2025-02-07",
+     "contains": [
+      "1,556,000"
+     ],
+     "quote": "As of December 31, 2024, we employed approximately 1,556,000 full-time and part-time employees",
+     "source_check": "corpus chunk amzn_10k_f97bdbf0_0030 (frozen)"
+    }
+   ],
+   "traps": "2023: ~1,525,000; 2025: ~1,576,000",
+   "review": false
+  },
+  {
+   "id": "H3",
+   "category": "period_distinction",
+   "ticker": "TSLA",
+   "question": "How many consumer vehicles did Tesla deliver in 2024?",
+   "expected": "Approximately 1,789,000 (full year 2024)",
+   "evidence": [
+    {
+     "accession": "0001628280-25-003063",
+     "doc": "TSLA 10-K FY2024, filed 2025-01-30",
+     "contains": [
+      "1,789,000"
+     ],
+     "quote": "In 2024, we produced approximately 1,773,000 consumer vehicles and delivered approximately 1,789,000 consumer vehicles",
+     "source_check": "corpus chunk tsla_10k_5e0243eb_0072 (frozen)"
+    }
+   ],
+   "traps": "2024 10-Qs give year-to-date figures (~387,000 through Q1, ~831,000 through Q2); 2023: 1,808,581",
+   "review": true,
+   "review_note": "The filing states an approximation; an answer quoting 1,789,000 without 'approximately' is still treated as correct."
+  },
+  {
+   "id": "H4",
+   "category": "false_premise",
+   "ticker": "MSFT",
+   "question": "Why did Microsoft's revenue decline in fiscal year 2024?",
+   "expected": "Reject the premise: fiscal 2024 revenue increased $33.2 billion or 16% (to $245.1 billion)",
+   "evidence": [
+    {
+     "accession": "0000950170-24-087843",
+     "doc": "MSFT 10-K FY2024 (FYE 2024-06-30), filed 2024-07-30",
+     "contains": [
+      "33.2 billion"
+     ],
+     "quote": "Fiscal Year 2024 Compared with Fiscal Year 2023 Revenue increased $33.2 billion or 16%",
+     "source_check": "corpus chunk msft_10k_25fdc2e5_0084 (frozen)"
+    }
+   ],
+   "traps": "",
+   "review": false
+  },
+  {
+   "id": "H5",
+   "category": "numerical_table",
+   "ticker": "NVDA",
+   "question": "What was NVIDIA's net income for fiscal year 2026?",
+   "expected": "$120,067 million (about $120.1 billion), up 65% from $72,880 million",
+   "evidence": [
+    {
+     "accession": "0001045810-26-000021",
+     "doc": "NVDA 10-K FY2026 (FYE 2026-01-25), filed 2026-02-25",
+     "contains": [
+      "120,067"
+     ],
+     "quote": "Net income | 120,067 | 72,880 | Up 65% (fiscal year summary table)",
+     "source_check": "raw primary-document.html table row"
+    }
+   ],
+   "traps": "FY2025 net income $72,880 million",
+   "review": false
+  },
+  {
+   "id": "H6",
+   "category": "numerical_table",
+   "ticker": "MSFT",
+   "question": "What was Microsoft's total revenue in fiscal year 2024?",
+   "expected": "$245,122 million (about $245.1 billion)",
+   "evidence": [
+    {
+     "accession": "0000950170-24-087843",
+     "doc": "MSFT 10-K FY2024 (FYE 2024-06-30), filed 2024-07-30",
+     "contains": [
+      "245,122"
+     ],
+     "quote": "Total revenue | 245,122 | 211,915 | 198,270 (income statements)",
+     "source_check": "raw primary-document.html table row"
+    }
+   ],
+   "traps": "FY2023 $211,915 million; FY2025 10-K reports FY2024 only as a comparative",
+   "review": false
+  },
+  {
+   "id": "H7",
+   "category": "numerical_table",
+   "ticker": "JPM",
+   "question": "What was JPMorganChase's total net revenue in the second quarter of 2026?",
+   "expected": "$57,347 million (reported basis)",
+   "evidence": [
+    {
+     "accession": "0001628280-26-054343",
+     "doc": "JPM 10-Q for the quarter ended 2026-06-30, filed 2026-08-06",
+     "contains": [
+      "57,347"
+     ],
+     "quote": "Total net revenue | 57,347 (2Q26) | 49,836 (1Q26) | ... | 107,183 (six months 2026)",
+     "source_check": "raw primary-document.html table row"
+    }
+   ],
+   "traps": "1Q26 $49,836m; six months 2026 $107,183m; 2Q25 $44,912m",
+   "review": true,
+   "review_note": "JPM also reports managed-basis revenue; a clearly labelled managed-basis figure would be a different but defensible answer."
+  },
+  {
+   "id": "H8",
+   "category": "numerical_table",
+   "ticker": "NVDA",
+   "question": "What was NVIDIA's revenue for the first quarter of fiscal year 2027?",
+   "expected": "$81,615 million (three months ended April 26, 2026), up from $44,062 million",
+   "evidence": [
+    {
+     "accession": "0001045810-26-000052",
+     "doc": "NVDA 10-Q Q1 FY2027 (quarter ended 2026-04-26), filed 2026-05-20",
+     "contains": [
+      "81,615"
+     ],
+     "quote": "Revenue | 81,615 | 44,062 (condensed consolidated statements of income)",
+     "source_check": "raw primary-document.html table row"
+    }
+   ],
+   "traps": "Q1 FY2026 $44,062 million; FY2026 full year $215,938 million",
+   "review": false
+  },
+  {
+   "id": "H9",
+   "category": "unanswerable",
+   "ticker": "NVDA",
+   "question": "What was NVIDIA's revenue for fiscal year 2021?",
+   "expected": "Abstain: fiscal 2021 is not covered by the corpus (2020-2023 filings absent; the FY2024 10-K's statements start at fiscal 2022)",
+   "evidence": [],
+   "traps": "Answering with FY2022 ($26,914m) or another year",
+   "review": true,
+   "review_note": "Absence checked by searching the FY2024 10-K text for the FY2021 figure and listing NVDA filings in the corpus; not exhaustive over every chunk."
+  },
+  {
+   "id": "H10",
+   "category": "unanswerable",
+   "ticker": "META",
+   "question": "What was Meta's total revenue in the first quarter of 2022?",
+   "expected": "Abstain: no 2022 quarterly revenue figure is in the corpus",
+   "evidence": [],
+   "traps": "2024/2025 quarterly figures; 'first quarter of 2022' appears only in Ukraine-related risk text",
+   "review": true,
+   "review_note": "Absence checked by text search of META chunks; not exhaustive."
+  },
+  {
+   "id": "H11",
+   "category": "false_premise",
+   "ticker": "TSLA",
+   "question": "Why did Tesla's total revenues fall in 2024?",
+   "expected": "Reject the premise: 2024 total revenues were $97.69 billion, an increase of $917 million",
+   "evidence": [
+    {
+     "accession": "0001628280-25-003063",
+     "doc": "TSLA 10-K FY2024, filed 2025-01-30",
+     "contains": [
+      "917 million"
+     ],
+     "quote": "realized total revenues of $97.69 billion, representing an increase of $917 million compared to the prior year",
+     "source_check": "corpus chunk tsla_10k_5e0243eb_0073 (frozen)"
+    }
+   ],
+   "traps": "2025 revenues did fall ($94.83 billion, down $2.86 billion) - a period-blending trap",
+   "review": false
+  }
+ ]
+}

@@ -1,0 +1,641 @@
+{
+ "meta": {
+  "service": "real AlphaSignal /query (gpt-5.6-luna, text-embedding-3-small) on the frozen corpus",
+  "date": "2026-10-19",
+  "runs": 1,
+  "judged_by": "Claude (single reviewer) - verify before relying on it"
+ },
+ "results": [
+  {
+   "id": "F1",
+   "category": "direct_fact",
+   "question": "How many employees did JPMorganChase have globally as of December 31, 2024?",
+   "expected": "317,233 employees",
+   "answer": "JPMorganChase had **317,233 employees globally** as of December 31, 2024. [Source 1]",
+   "retrieved_chunk_ids": [
+    "jpm_10k_2a5bbe33_0018",
+    "jpm_10k_d632c9cb_0019",
+    "jpm_10k_63838ec2_0003",
+    "jpm_10k_d632c9cb_0000",
+    "jpm_10k_2a5bbe33_0000"
+   ],
+   "cited_chunk_ids": [
+    "jpm_10k_d632c9cb_0019"
+   ],
+   "gold_chunk_ids": [
+    "jpm_10k_d632c9cb_0019"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 18,
+   "lexical_screen": [
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "yes",
+    "answer": "correct",
+    "citation_support": "supported",
+    "notes": ""
+   }
+  },
+  {
+   "id": "F2",
+   "category": "direct_fact",
+   "question": "What was Microsoft Cloud revenue in fiscal year 2025?",
+   "expected": "$168.9 billion (up 23%)",
+   "answer": "Microsoft Cloud revenue was **$168.9 billion** in fiscal year 2025. [Source 1]",
+   "retrieved_chunk_ids": [
+    "msft_10q_61a1b7a1_0042",
+    "msft_10q_b7181ed7_0028",
+    "msft_10k_2f7ea619_0069",
+    "msft_10k_4ec90154_0067",
+    "msft_10q_59308327_0034"
+   ],
+   "cited_chunk_ids": [
+    "msft_10k_4ec90154_0067"
+   ],
+   "gold_chunk_ids": [
+    "msft_10k_4ec90154_0067",
+    "msft_10k_4ec90154_0125"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 20,
+   "lexical_screen": [
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "yes",
+    "answer": "correct",
+    "citation_support": "supported",
+    "notes": ""
+   }
+  },
+  {
+   "id": "F3",
+   "category": "direct_fact",
+   "question": "In fiscal year 2026, what share of NVIDIA's total revenue came from its largest direct customer?",
+   "expected": "22% (a second direct customer was 14%)",
+   "answer": "The provided context does not state the largest direct customer’s share for the full fiscal year 2026. It reports that the largest direct customer accounted for **21% of total revenue during the first nine months of fiscal 2026**. [Source 1]",
+   "retrieved_chunk_ids": [
+    "nvda_10k_86184b4a_0168",
+    "nvda_10q_8c68de02_0043",
+    "nvda_10q_79ce61fc_0049",
+    "nvda_10q_cc322478_0032",
+    "nvda_10q_cf03ae4f_0042"
+   ],
+   "cited_chunk_ids": [
+    "nvda_10q_8c68de02_0043"
+   ],
+   "gold_chunk_ids": [
+    "nvda_10k_8d772322_0057"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 18,
+   "lexical_screen": [
+    "uncited_claim",
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "no",
+    "answer": "wrong_abstention",
+    "citation_support": "supported",
+    "notes": "Top 5 held only the Q3 FY2026 10-Q; answer correctly reports its 21% nine-month figure and says the full-year share is not in context. The FY2026 10-K (22%) was not retrieved."
+   }
+  },
+  {
+   "id": "F4",
+   "category": "direct_fact",
+   "question": "How many Microsoft 365 Consumer subscribers did Microsoft report for fiscal year 2025?",
+   "expected": "89.0 million (subscriber growth of 8%)",
+   "answer": "Microsoft reported **89.0 million Microsoft 365 Consumer subscribers** for fiscal year 2025. [Source 1]",
+   "retrieved_chunk_ids": [
+    "msft_10k_2f7ea619_0074",
+    "msft_10k_4ec90154_0073",
+    "msft_10k_25fdc2e5_0083",
+    "msft_10q_61a1b7a1_0042",
+    "msft_10q_59308327_0034"
+   ],
+   "cited_chunk_ids": [
+    "msft_10k_4ec90154_0073"
+   ],
+   "gold_chunk_ids": [
+    "msft_10k_4ec90154_0073"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 20,
+   "lexical_screen": [
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "yes",
+    "answer": "correct",
+    "citation_support": "supported",
+    "notes": ""
+   }
+  },
+  {
+   "id": "P1",
+   "category": "period_distinction",
+   "question": "How many of Microsoft's full-time employees were in the U.S. as of June 30, 2024?",
+   "expected": "126,000 (of approximately 228,000)",
+   "answer": "Microsoft had approximately **126,000 full-time employees in the U.S.** as of June 30, 2024. [Source 1]",
+   "retrieved_chunk_ids": [
+    "msft_10k_b79c25dd_0023",
+    "msft_10k_f875139a_0023",
+    "msft_10k_5ea7d3c4_0024",
+    "msft_10k_25fdc2e5_0010",
+    "msft_10k_08548a98_0129"
+   ],
+   "cited_chunk_ids": [
+    "msft_10k_25fdc2e5_0010"
+   ],
+   "gold_chunk_ids": [
+    "msft_10k_25fdc2e5_0010"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 15,
+   "lexical_screen": [
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "yes",
+    "answer": "correct",
+    "citation_support": "supported",
+    "notes": "Picked the June 30, 2024 figure (126,000), not FY2025's 125,000."
+   }
+  },
+  {
+   "id": "P2",
+   "category": "period_distinction",
+   "question": "How many employees did NVIDIA have at the end of fiscal year 2025?",
+   "expected": "Approximately 36,000 employees in 38 countries",
+   "answer": "The provided context does not state how many employees NVIDIA had at the end of fiscal year 2025. It only reports approximately **29,600 employees at the end of fiscal year 2024**. [Source 1]",
+   "retrieved_chunk_ids": [
+    "nvda_10k_624c7eb4_0025",
+    "nvda_10k_624c7eb4_0022",
+    "nvda_10k_bca3fac9_0017",
+    "nvda_10k_624c7eb4_0099",
+    "nvda_10k_624c7eb4_0125"
+   ],
+   "cited_chunk_ids": [
+    "nvda_10k_624c7eb4_0022"
+   ],
+   "gold_chunk_ids": [
+    "nvda_10k_86184b4a_0025"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 17,
+   "lexical_screen": [
+    "uncited_claim",
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "no",
+    "answer": "wrong_abstention",
+    "citation_support": "supported",
+    "notes": "Retrieved the FY2024 10-K (29,600) instead of FY2025 (36,000); the answer labels the period correctly rather than blending."
+   }
+  },
+  {
+   "id": "P3",
+   "category": "period_distinction",
+   "question": "By how much did NVIDIA's Data Center revenue grow in fiscal year 2025 compared with the prior year?",
+   "expected": "Up 142% year on year",
+   "answer": "The provided context does not state NVIDIA’s full fiscal year 2025 Data Center revenue or its year-over-year growth versus fiscal 2024. It only reports first-quarter fiscal 2025 Data Center revenue of **$22.6 billion**, up **427% year over year**.[Source 1]",
+   "retrieved_chunk_ids": [
+    "nvda_10q_cf03ae4f_0041",
+    "nvda_10q_c88a4e3f_0041",
+    "nvda_10q_8c68de02_0042",
+    "nvda_10k_624c7eb4_0099",
+    "nvda_10q_a3f2b32f_0028"
+   ],
+   "cited_chunk_ids": [
+    "nvda_10q_a3f2b32f_0028"
+   ],
+   "gold_chunk_ids": [
+    "nvda_10k_86184b4a_0104"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 18,
+   "lexical_screen": [
+    "uncited_claim",
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "no",
+    "answer": "wrong_abstention",
+    "citation_support": "supported",
+    "notes": "Retrieved Q1 FY2025 10-Q (.6B, +427%, correctly quoted and labelled as Q1); the full-year +142% chunk was not retrieved."
+   }
+  },
+  {
+   "id": "P4",
+   "category": "period_distinction",
+   "question": "What was NVIDIA's total revenue for fiscal year 2025?",
+   "expected": "$130.5 billion (up 114%)",
+   "answer": "The provided sources do not state NVIDIA’s total revenue for fiscal year 2025. [Source 1]",
+   "retrieved_chunk_ids": [
+    "nvda_10k_624c7eb4_0099",
+    "nvda_10q_a3f2b32f_0029",
+    "nvda_10k_4d61bb7c_0045",
+    "nvda_10k_624c7eb4_0125",
+    "nvda_10k_bca3fac9_0045"
+   ],
+   "cited_chunk_ids": [
+    "nvda_10q_a3f2b32f_0029"
+   ],
+   "gold_chunk_ids": [
+    "nvda_10k_86184b4a_0104"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 14,
+   "lexical_screen": [
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "no",
+    "answer": "wrong_abstention",
+    "citation_support": "n/a",
+    "notes": "Correct revenue chunk (FY2025 10-K) not retrieved; abstained."
+   }
+  },
+  {
+   "id": "N1",
+   "category": "numerical",
+   "question": "What was Microsoft Cloud revenue in fiscal year 2023?",
+   "expected": "$111.6 billion",
+   "answer": "Microsoft Cloud revenue in fiscal year 2023 was approximately **$111.7 billion**, calculated from fiscal 2024 revenue of $137.4 billion, which represented a 23% increase year over year. [Source 1]",
+   "retrieved_chunk_ids": [
+    "msft_10q_b7181ed7_0028",
+    "msft_10q_61a1b7a1_0042",
+    "msft_10k_25fdc2e5_0080",
+    "msft_10k_2f7ea619_0069",
+    "msft_10k_4ec90154_0067"
+   ],
+   "cited_chunk_ids": [
+    "msft_10k_25fdc2e5_0080"
+   ],
+   "gold_chunk_ids": [
+    "msft_10k_4ec90154_0125",
+    "msft_10k_25fdc2e5_0142"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 20,
+   "lexical_screen": [
+    "number_not_in_source"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "no",
+    "answer": "wrong",
+    "citation_support": "not_supported",
+    "notes": "Answered $111.7B by back-computing from FY2024's $137.4B and +23% growth; the stated figure is $111.6B (chunks stating it were not retrieved). Arithmetic presented as fact; lexical screen flagged 111.7 correctly."
+   }
+  },
+  {
+   "id": "N2",
+   "category": "numerical",
+   "question": "What was NVIDIA's defined contribution plan expense in fiscal year 2024?",
+   "expected": "$255 million",
+   "answer": "NVIDIA’s defined contribution plan expense in fiscal year 2024 was **$255 million**. [Source 1]",
+   "retrieved_chunk_ids": [
+    "nvda_10k_8d772322_0161",
+    "nvda_10k_04eeb71c_0126",
+    "nvda_10k_86184b4a_0165",
+    "nvda_10q_cf03ae4f_0004",
+    "nvda_10k_624c7eb4_0125"
+   ],
+   "cited_chunk_ids": [
+    "nvda_10k_86184b4a_0165"
+   ],
+   "gold_chunk_ids": [
+    "nvda_10k_8d772322_0159",
+    "nvda_10k_86184b4a_0165"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 17,
+   "lexical_screen": [
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "yes",
+    "answer": "correct",
+    "citation_support": "supported",
+    "notes": "Read the shifted three-year list correctly (FY2025 10-K)."
+   }
+  },
+  {
+   "id": "N3",
+   "category": "numerical",
+   "question": "What was JPMorganChase's firmwide total net revenue and net interest income for 2024?",
+   "expected": "Total net revenue $177.6 billion; NII $92.6 billion",
+   "answer": "JPMorganChase’s firmwide total net revenue was **$177.6 billion**, and net interest income was **$92.6 billion** in 2024. [Source 1]",
+   "retrieved_chunk_ids": [
+    "jpm_10k_d632c9cb_0122",
+    "jpm_10k_2a5bbe33_0105",
+    "jpm_10k_63838ec2_0123",
+    "jpm_10k_2a5bbe33_0110",
+    "jpm_10k_d632c9cb_0127"
+   ],
+   "cited_chunk_ids": [
+    "jpm_10k_d632c9cb_0122"
+   ],
+   "gold_chunk_ids": [
+    "jpm_10k_d632c9cb_0122"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 14,
+   "lexical_screen": [
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "yes",
+    "answer": "correct",
+    "citation_support": "supported",
+    "notes": "Firmwide, not segment figures."
+   }
+  },
+  {
+   "id": "N4",
+   "category": "numerical_table_absent",
+   "question": "What was Microsoft's GAAP net income for fiscal year 2025?",
+   "expected": "ABSTAIN (the figure is in the filing's income-statement table, which is not in the corpus)",
+   "answer": "The provided context does not state Microsoft’s fiscal year 2025 GAAP net income. It only says that fiscal 2025 net income was reduced by $3.6 billion due to net losses from OpenAI investments. [Source 1]",
+   "retrieved_chunk_ids": [
+    "msft_10k_2f7ea619_0074",
+    "msft_10k_2f7ea619_0079",
+    "msft_10q_fd6a1ced_0043",
+    "msft_10q_fba182f1_0042",
+    "msft_10q_59308327_0041"
+   ],
+   "cited_chunk_ids": [
+    "msft_10k_2f7ea619_0074"
+   ],
+   "gold_chunk_ids": [],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 16,
+   "lexical_screen": [
+    "uncited_claim",
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "n/a",
+    "answer": "correct_abstention",
+    "citation_support": "supported",
+    "notes": "Correctly framed FY2026 10-K's $3.6B as an OpenAI-related reduction to FY2025 net income, not net income itself."
+   }
+  },
+  {
+   "id": "N5",
+   "category": "numerical_table_absent",
+   "question": "What was NVIDIA's Data Center segment revenue in dollars for fiscal year 2026?",
+   "expected": "ABSTAIN (only the growth rate, 68%, is in the corpus; the revenue table is absent)",
+   "answer": "The provided context does not state NVIDIA’s Data Center segment revenue in dollars for fiscal year 2026. It only reports year-over-year growth rates for Data Center computing and networking. [Source 1]",
+   "retrieved_chunk_ids": [
+    "nvda_10q_cf03ae4f_0041",
+    "nvda_10q_c88a4e3f_0041",
+    "nvda_10k_8d772322_0161",
+    "nvda_10k_8d772322_0101",
+    "nvda_10k_624c7eb4_0099"
+   ],
+   "cited_chunk_ids": [
+    "nvda_10k_8d772322_0101"
+   ],
+   "gold_chunk_ids": [
+    "nvda_10k_8d772322_0095"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 17,
+   "lexical_screen": [
+    "uncited_claim",
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "partial",
+    "answer": "correct_abstention",
+    "citation_support": "supported",
+    "notes": "Mentions Data Center computing/networking growth (59%/142%) from the FY2026 10-K; did not give the overall 68%."
+   }
+  },
+  {
+   "id": "U1",
+   "category": "unanswerable",
+   "question": "What was the total compensation of NVIDIA's CEO Jensen Huang in fiscal year 2026?",
+   "expected": "ABSTAIN (executive pay is in the proxy statement, not the 10-K; the 10-K only gives his biography)",
+   "answer": "The provided context does not include NVIDIA CEO Jensen (Jen-Hsun) Huang’s total compensation for fiscal year 2026. It only identifies him as CEO and provides his biography. [Source 1]",
+   "retrieved_chunk_ids": [
+    "nvda_10k_624c7eb4_0025",
+    "nvda_10k_8d772322_0022",
+    "nvda_10q_93da219a_0018",
+    "nvda_10q_93da219a_0031",
+    "nvda_10k_624c7eb4_0125"
+   ],
+   "cited_chunk_ids": [
+    "nvda_10k_8d772322_0022"
+   ],
+   "gold_chunk_ids": [],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 14,
+   "lexical_screen": [
+    "uncited_claim",
+    "weak_overlap"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "n/a",
+    "answer": "correct_abstention",
+    "citation_support": "supported",
+    "notes": ""
+   }
+  },
+  {
+   "id": "U2",
+   "category": "unanswerable",
+   "question": "How many JPMorganChase branches were located in Brazil at the end of 2024?",
+   "expected": "ABSTAIN (not stated in the corpus)",
+   "answer": "The provided context does not specify how many JPMorganChase branches were located in Brazil at the end of 2024. It only states that the firm had 4,966 branches in 48 U.S. states and Washington, D.C. [Source 1]",
+   "retrieved_chunk_ids": [
+    "jpm_10k_63838ec2_0121",
+    "jpm_10k_d632c9cb_0104",
+    "jpm_10k_63838ec2_0101",
+    "jpm_10k_d632c9cb_0000",
+    "jpm_10k_2a5bbe33_0018"
+   ],
+   "cited_chunk_ids": [
+    "jpm_10k_d632c9cb_0104"
+   ],
+   "gold_chunk_ids": [],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 20,
+   "lexical_screen": [
+    "uncited_claim",
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "n/a",
+    "answer": "correct_abstention",
+    "citation_support": "supported",
+    "notes": "4,966 U.S. branches at 2024-12-31 is quoted correctly."
+   }
+  },
+  {
+   "id": "U3",
+   "category": "unanswerable",
+   "question": "What quarterly dividend per share did Microsoft declare in March 2027?",
+   "expected": "ABSTAIN (future date; no such filing exists)",
+   "answer": "The provided sources do not contain information about a Microsoft quarterly dividend declared in March 2027. The latest filing provided is dated July 29, 2026. [Source 1]",
+   "retrieved_chunk_ids": [
+    "msft_10q_fd6a1ced_0064",
+    "msft_10q_59308327_0054",
+    "msft_10q_c633ac8b_0047",
+    "msft_10q_b7181ed7_0042",
+    "msft_10k_2f7ea619_0124"
+   ],
+   "cited_chunk_ids": [
+    "msft_10k_2f7ea619_0124"
+   ],
+   "gold_chunk_ids": [],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 15,
+   "lexical_screen": [
+    "uncited_claim",
+    "number_not_in_source"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "n/a",
+    "answer": "correct_abstention",
+    "citation_support": "supported",
+    "notes": "Lexical screen's number_not_in_source ('29') is a false positive (date from filing metadata)."
+   }
+  },
+  {
+   "id": "M1",
+   "category": "false_premise",
+   "question": "Why did Microsoft's total revenue decline in fiscal year 2025?",
+   "expected": "Reject the premise: revenue increased $36.6 billion or 15%, with growth across each segment",
+   "answer": "Microsoft’s total revenue did **not appear to decline** in fiscal 2025 based on the provided filings. The company reported growth in Microsoft Cloud revenue of 23% to $168.9 billion, along with increases in Microsoft 365, LinkedIn, Dynamics 365, Azure and other cloud services, Windows OEM and Devices, Xbox content and services, and search advertising. [Source 1]\n\nTherefore, the premise that total revenue declined is not supported by the provided context.",
+   "retrieved_chunk_ids": [
+    "msft_10k_2f7ea619_0069",
+    "msft_10q_b7181ed7_0028",
+    "msft_10q_61a1b7a1_0042",
+    "msft_10k_4ec90154_0067",
+    "msft_10q_fba182f1_0035"
+   ],
+   "cited_chunk_ids": [
+    "msft_10k_4ec90154_0067"
+   ],
+   "gold_chunk_ids": [
+    "msft_10k_4ec90154_0071"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 18,
+   "lexical_screen": [
+    "uncited_claim",
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "partial",
+    "answer": "correct",
+    "citation_support": "supported",
+    "notes": "Rejected the premise using line-item growth (all verified in the cited chunk); the total-revenue chunk (+$36.6B, +15%) was not retrieved."
+   }
+  },
+  {
+   "id": "M2",
+   "category": "false_premise",
+   "question": "How many employees did NVIDIA lay off during fiscal year 2026?",
+   "expected": "Reject or flag the premise: no layoffs are reported; headcount rose from about 36,000 (end FY2025) to about 42,000 (end FY2026)",
+   "answer": "The provided sources do not contain information about NVIDIA layoffs during fiscal year 2026. They only report approximately 29,600 employees at the end of fiscal year 2024. [Source 1]",
+   "retrieved_chunk_ids": [
+    "nvda_10k_624c7eb4_0025",
+    "nvda_10k_624c7eb4_0022",
+    "nvda_10k_624c7eb4_0099",
+    "nvda_10k_86184b4a_0151",
+    "nvda_10k_624c7eb4_0098"
+   ],
+   "cited_chunk_ids": [
+    "nvda_10k_624c7eb4_0022"
+   ],
+   "gold_chunk_ids": [
+    "nvda_10k_8d772322_0021",
+    "nvda_10k_86184b4a_0025"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 19,
+   "lexical_screen": [
+    "uncited_claim",
+    "supported_lexically"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "no",
+    "answer": "acceptable",
+    "citation_support": "supported",
+    "notes": "No layoff information (true for the corpus); only FY2024 headcount retrieved, so the rise to ~42,000 was not shown."
+   }
+  },
+  {
+   "id": "M3",
+   "category": "false_premise",
+   "question": "What was JPMorganChase's net loss in 2024?",
+   "expected": "Reject the premise: JPMorganChase reported net income of $58.5 billion for 2024, up 18%",
+   "answer": "The provided context does not state JPMorganChase’s 2024 net loss or net income. Therefore, the 2024 net loss cannot be determined from these sources. [Source 1]",
+   "retrieved_chunk_ids": [
+    "jpm_10k_2a5bbe33_0447",
+    "jpm_10k_2a5bbe33_0111",
+    "jpm_10k_2a5bbe33_0110",
+    "jpm_10k_d632c9cb_0127",
+    "jpm_news_e461c95a_0000"
+   ],
+   "cited_chunk_ids": [
+    "jpm_10k_2a5bbe33_0111"
+   ],
+   "gold_chunk_ids": [
+    "jpm_10k_d632c9cb_0122"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 16,
+   "lexical_screen": [
+    "uncited_claim",
+    "weak_overlap"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "no",
+    "answer": "wrong_abstention",
+    "citation_support": "n/a",
+    "notes": "Failed to reject the false premise: retrieved FY2025-filing chunks and news, not the 2024 results ($58.5B net income); said net income was not stated."
+   }
+  },
+  {
+   "id": "M4",
+   "category": "false_premise",
+   "question": "What caused Microsoft's full-time headcount to fall from 228,000 to 221,000 by June 30, 2025?",
+   "expected": "Reject the premise: headcount was approximately 228,000 at both June 30, 2024 and June 30, 2025",
+   "answer": "Microsoft’s full-time headcount did **not** fall to 221,000 by June 30, 2025, according to the provided filings. It remained approximately **228,000**, unchanged from June 30, 2024. Therefore, the filings do not support or explain a 7,000-employee decline. [Source 1] [Source 2]",
+   "retrieved_chunk_ids": [
+    "msft_10k_25fdc2e5_0010",
+    "msft_10k_4ec90154_0013",
+    "msft_10k_2f7ea619_0069",
+    "msft_10k_5ea7d3c4_0024",
+    "msft_10q_61a1b7a1_0052"
+   ],
+   "cited_chunk_ids": [
+    "msft_10k_25fdc2e5_0010",
+    "msft_10k_4ec90154_0013"
+   ],
+   "gold_chunk_ids": [
+    "msft_10k_4ec90154_0013",
+    "msft_10k_25fdc2e5_0010"
+   ],
+   "retrieval_mode": "hybrid",
+   "results_from_dense": 19,
+   "lexical_screen": [
+    "uncited_claim",
+    "uncited_claim",
+    "number_not_in_source"
+   ],
+   "manual": {
+    "retrieval_has_evidence": "yes",
+    "answer": "correct",
+    "citation_support": "supported",
+    "notes": "Rejected premise with both years' 228,000; '7,000' is arithmetic on the question's numbers (lexical false positive)."
+   }
+  }
+ ]
+}
