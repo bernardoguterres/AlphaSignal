@@ -42,6 +42,18 @@ retrieval:
   dense_candidates: 50
   sparse_candidates: 50
   rerank_candidates: 20
+  # Extra candidates drawn only from the filing(s) whose fiscal period the
+  # question names (10-K for a fiscal year, 10-Q for a quarter).
+  period_scoped_candidates: 10
+  # Rerank each chunk as its best ~150-word sentence window (MaxP, Dai &
+  # Callan 2019 window size; not tuned). 0 = score whole chunks.
+  rerank_window_words: 150
+  # Financial tables in their own candidate lane, period-matched by column
+  # and scored row by row; table_slots of the top_k evidence are reserved for
+  # the best matched table(s), the rest for prose (scores are not compared
+  # across lanes). false = the single-pool retrieval of 2026-10-20.
+  table_lane: true
+  table_slots: 1
   hybrid_weights:
     bm25: 0.4
     dense: 0.6
@@ -49,8 +61,17 @@ retrieval:
 generation:
   model: "gpt-5.6-luna"
   max_tokens: 1000
+  # NOT sent: gpt-5.6-luna accepts only its default temperature. Even an
+  # accepted low temperature would not make outputs identical across calls.
   temperature: 0.1
-  sentiment_cache_hours: 24
+
+sentiment:
+  freshness_days: 30          # documents older than this are not used -> "stale"
+  half_life_days: 7           # recency weight halves every 7 days
+  max_documents: 8            # most recent eligible documents aggregated
+  max_chunks_per_document: 2  # MD&A first for filings
+  parallelism: 8              # concurrent model calls on a cold cache
+  cache_path: "data/sentiment_cache.json"  # per (content hash, model, prompt version)
 
 storage:
   faiss_index_path: "data/faiss_index"

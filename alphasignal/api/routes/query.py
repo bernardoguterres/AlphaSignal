@@ -13,10 +13,13 @@ from alphasignal.api.dependencies import (
     get_reranker,
     get_retriever,
 )
+from alphasignal.generation.support import assess_support
 from alphasignal.api.schemas import Citation, QueryRequest, QueryResponse
 from alphasignal.generation.generator import RAGGenerator
 from alphasignal.monitoring.metrics import MetricsCollector
-from alphasignal.retrieval.reranker import CrossEncoderReranker
+from alphasignal.retrieval.premise import retrieval_query
+from alphasignal.retrieval.reranker import CrossEncoderReranker, compose_context
+from alphasignal.retrieval.retriever import requested_bases
 from alphasignal.retrieval.retriever import HybridRetriever
 
 router = APIRouter()
@@ -63,8 +66,11 @@ def query(
         # always 200, with an empty citations list signaling "no matches"
         # (see the no-results branch just below).
         # Step 1: Retrieve candidates
+        # Search with the premise-neutral form of the question (see
+        # retrieval/premise.py); the model answers the question as asked.
+        search_query = retrieval_query(request.query)
         retrieved_chunks = retriever.retrieve(
-            query=request.query,
+            query=search_query,
             ticker=request.ticker_filter,
             date_from=request.date_from,
             date_to=request.date_to,
@@ -84,11 +90,20 @@ def query(
                 latency_ms=latency_ms,
                 retrieval_scores=[],
                 model_used=config.get("generation", {}).get("model", "gpt-5.6-luna"),
+                retrieval=dict(getattr(retriever, "last_diagnostics", {}) or {}),
             )
 
         # Step 2: Rerank
-        reranked_chunks = reranker.rerank(
-            query=request.query, chunks=retrieved_chunks, top_k=request.top_k
+        # Rerank the whole pool (sorted), then keep top_k - the full order is
+        # only reported when include_trace is set.
+        reranked_all = reranker.rerank(
+            query=search_query, chunks=retrieved_chunks, top_k=None
+        )
+        reranked_chunks = compose_context(
+            reranked_all,
+            request.top_k,
+            table_slots=config.get("retrieval", {}).get("table_slots", 1),
+            prefer_bases=requested_bases(request.query),
         )
 
         logger.info(f"Reranked to top {len(reranked_chunks)} chunks")
@@ -117,6 +132,10 @@ def query(
                     if chunk.final_score is not None
                     else chunk.hybrid_score
                 ),
+                doc_type=chunk.doc_type,
+                url=chunk.url,
+                accession_number=getattr(chunk, "accession_number", None),
+                attribution=getattr(chunk, "attribution", None) or None,
             )
             citations.append(citation)
 
@@ -136,6 +155,20 @@ def query(
             latency_ms=latency_ms,
             retrieval_scores=retrieval_scores,
             model_used=config.get("generation", {}).get("model", "gpt-5.6-luna"),
+            retrieval=dict(getattr(retriever, "last_diagnostics", {}) or {}),
+            retrieved_chunk_ids=[chunk.chunk_id for chunk in reranked_chunks],
+            trace=(
+                {
+                    **getattr(retriever, "last_trace", {}),
+                    "reranked": [chunk.chunk_id for chunk in reranked_all],
+                }
+                if request.include_trace
+                else None
+            ),
+            citation_support=assess_support(
+                generation_result.answer,
+                [c.text for c in generation_result.cited_chunks],
+            ),
         )
 
     except Exception as e:

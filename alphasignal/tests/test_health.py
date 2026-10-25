@@ -90,6 +90,11 @@ def test_health_status_healthy_with_chunks_indexed():
     fake_metadata_store.count.return_value = 42
     fake_vector_store = MagicMock()
     fake_vector_store.index = MagicMock()  # non-None = loaded
+    fake_vector_store.index.ntotal = 42
+    fake_vector_store.content_hashes = {f"c{i}": f"h{i}" for i in range(42)}
+    fake_metadata_store.get_content_hashes.return_value = {
+        f"c{i}": f"h{i}" for i in range(42)
+    }
     fake_retriever = SimpleNamespace(
         vector_store=fake_vector_store, metadata_store=fake_metadata_store
     )
@@ -102,6 +107,29 @@ def test_health_status_healthy_with_chunks_indexed():
     assert response.status_code == 200
     assert data["chunks_indexed"] == 42
     assert data["status"] == "healthy"
+    assert data["dense_retrieval"] == "full"
+
+
+def test_health_degraded_when_no_vector_is_verified():
+    """Regression (2026-10): a legacy index whose vectors have no content
+    hash contributes nothing to dense retrieval - every query runs BM25-only
+    - but /health used to say "healthy"."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    store = MagicMock()
+    store.count.return_value = 42
+    vs = MagicMock()
+    vs.index.ntotal = 42
+    vs.content_hashes = {f"c{i}": "" for i in range(42)}
+    app_state = SimpleNamespace(
+        retriever=SimpleNamespace(vector_store=vs, metadata_store=store), start_time=0.0
+    )
+    for bare_client in _bare_client_with_app_state(app_state):
+        data = bare_client.get("/health/").json()
+    assert data["status"] == "degraded"
+    assert data["dense_retrieval"] == "unavailable"
+    assert (data["vectors_total"], data["vectors_verified"]) == (42, 0)
 
 
 def test_health_status_unhealthy_when_store_read_fails():
@@ -149,3 +177,36 @@ def test_health_handles_missing_app_state_gracefully():
     assert data["faiss_index_loaded"] is False
     assert data["sqlite_connected"] is False
     assert data["chunks_indexed"] == 0
+
+
+def test_health_counts_only_vectors_matching_current_chunk_hash():
+    """Regression (2026-10 review): a vector whose stored hash differs from
+    the chunk's current hash (or whose chunk is gone) is never used by dense
+    search, so /health must not count it as verified."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    store = MagicMock()
+    store.count.return_value = 4
+    store.get_content_hashes.return_value = {
+        "c0": "h0",
+        "c1": "h1",
+        "c2": "CHANGED",
+        "c3": "h3",
+    }
+    vs = MagicMock()
+    vs.index.ntotal = 6
+    vs.content_hashes = {f"c{i}": f"h{i}" for i in range(6)}  # c4, c5 orphans
+    app_state = SimpleNamespace(
+        retriever=SimpleNamespace(vector_store=vs, metadata_store=store), start_time=0.0
+    )
+    for bare_client in _bare_client_with_app_state(app_state):
+        data = bare_client.get("/health/").json()
+    assert data["vectors_verified"] == 3
+    assert data["dense_retrieval"] == "partial"
+
+
+def test_health_identifies_the_service(client):
+    body = client.get("/health/").json()
+    assert body["service"] == "alphasignal"
+    assert body["sentiment_contract"] == "2"

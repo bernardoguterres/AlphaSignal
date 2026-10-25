@@ -83,7 +83,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("Loaded environment variables")
 
-    config_path = Path(__file__).parent.parent.parent / "config.yaml"
+    # ALPHASIGNAL_CONFIG points at another config file (e.g. an evaluation
+    # variant); default: the repository's config.yaml.
+    config_path = Path(
+        os.environ.get("ALPHASIGNAL_CONFIG")
+        or Path(__file__).parent.parent.parent / "config.yaml"
+    )
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
@@ -114,7 +119,9 @@ async def lifespan(app: FastAPI):
     bm25_docs = len(retriever.bm25_chunk_ids) if retriever.bm25_index else 0
     logger.info(f"BM25 index built: {bm25_docs} documents")
 
-    reranker = CrossEncoderReranker()
+    reranker = CrossEncoderReranker(
+        window_words=config.get("retrieval", {}).get("rerank_window_words", 0)
+    )
     logger.info("Cross-encoder reranker loaded")
 
     generator = RAGGenerator(config)

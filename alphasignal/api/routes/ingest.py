@@ -161,7 +161,10 @@ def ingest(
         filing_types = body.filing_types if body else None
         years_back = body.years_back if body else None
         result = pipeline.full_ingest(
-            ticker, filing_types=filing_types, years_back=years_back
+            ticker,
+            filing_types=filing_types,
+            years_back=years_back,
+            include_news=body.include_news if body else True,
         )
 
         # Rebuild BM25 index after ingestion

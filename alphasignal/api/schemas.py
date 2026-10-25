@@ -4,6 +4,9 @@ from datetime import date
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
+# /sentiment response contract implemented by this service (docs/sentiment_contract.md).
+SENTIMENT_CONTRACT_VERSION = "2"
+
 
 # Request models
 class QueryRequest(BaseModel):
@@ -20,6 +23,9 @@ class QueryRequest(BaseModel):
         date_from: Earliest document date to include in retrieval.
         date_to: Latest document date to include in retrieval.
         top_k: Number of results to return (1–20, default 5).
+        include_trace: Also return per-stage candidate ids (dense, sparse,
+            merged pool sent to the reranker, reranked) for evaluation and
+            debugging. Off by default.
     """
 
     query: str = Field(..., min_length=5, max_length=500)
@@ -27,12 +33,14 @@ class QueryRequest(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
     top_k: int = Field(default=5, ge=1, le=20)
+    include_trace: bool = False
 
 
 class IngestRequest(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=5, pattern=r"^[A-Z]+$")
     filing_types: list[str] = Field(default=["10-K", "10-Q"])
     years_back: int = Field(default=2, ge=1, le=5)
+    include_news: bool = True  # False: re-ingest filings only
 
 
 # Response models
@@ -43,6 +51,21 @@ class Citation(BaseModel):
     date: date
     excerpt: str
     relevance_score: float
+    # Provenance (2026-10): document identity a reader can follow back.
+    doc_type: str | None = None
+    url: str | None = None  # EDGAR filing index page / article URL
+    accession_number: str | None = None
+    attribution: str | None = None  # filer / news_title / news_body
+
+
+class SentenceSupport(BaseModel):
+    sentence: str
+    sources: list[int]
+    verdict: Literal[
+        "supported_lexically", "weak_overlap", "number_not_in_source", "uncited_claim"
+    ]
+    missing_numbers: list[str] = []
+    word_overlap: float | None = None
 
 
 class QueryResponse(BaseModel):
@@ -56,6 +79,17 @@ class QueryResponse(BaseModel):
     latency_ms: int
     retrieval_scores: list[float]
     model_used: str
+    # Whether dense retrieval actually contributed this call ("hybrid") or
+    # the run degraded to BM25 only ("sparse_only"), plus candidate counts.
+    retrieval: dict = {}
+    # Lexical citation-support screening (generation/support.py) - a
+    # heuristic flagging claims to inspect, not proof of support.
+    citation_support: list[SentenceSupport] = []
+    # Chunks passed to the generator (reranked top_k), in rank order - lets
+    # retrieval be evaluated separately from what the answer chose to cite.
+    retrieved_chunk_ids: list[str] = []
+    # Per-stage candidate ids, only when the request set include_trace.
+    trace: dict | None = None
 
 
 class SentimentSignal(BaseModel):
@@ -72,6 +106,9 @@ class SentimentSignal(BaseModel):
     # than a genuine chunk-level prediction (additive field, defaults True
     # so existing consumers reading only score/confidence are unaffected).
     reliable: bool = True
+    # Document identity / link (document-level aggregation, 2026-10)
+    document_id: str | None = None
+    url: str | None = None
 
 
 class SentimentResponse(BaseModel):
@@ -101,7 +138,9 @@ class SentimentResponse(BaseModel):
     # A Literal (not a bare str) so the finite set of valid values is a
     # structural, Pydantic-enforced guarantee - not just a documented
     # convention - and shows up as an enum in the generated OpenAPI schema.
-    status: Literal["ok", "no_data", "degraded"] = "ok"
+    # "stale"   - documents exist, but none within the freshness window:
+    #             latest_score is null; last_document_date says how old.
+    status: Literal["ok", "no_data", "degraded", "stale"] = "ok"
     degraded: bool = False
     # Categorical only, by construction (route code always passes a fixed
     # literal here, never str(exception)) - must never carry raw exception
@@ -113,6 +152,17 @@ class SentimentResponse(BaseModel):
     # all chunks considered for this response.
     reliable_chunk_count: int = 0
     total_chunk_count: int = 0
+    # --- Aggregation / freshness contract (2026-10) ---
+    # latest_score is the document-level, recency-weighted aggregate (see
+    # generation/sentiment.py), not a single chunk's score.
+    method: str = "document_recency_weighted_v2"
+    as_of: date | None = None
+    freshness_days: int | None = None
+    documents_used: int = 0
+    last_document_date: date | None = None
+    # What the corpus actually holds for this ticker (never implies
+    # complete coverage): per doc_type earliest/latest dates + years absent.
+    coverage: dict = {}
 
 
 class IngestResponse(BaseModel):
@@ -137,12 +187,31 @@ class BatchIngestResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
+    # Service identity: clients (AlphaLive) check these before trusting the
+    # URL they were given - a different app answering on the same port
+    # returns 200 too, so status codes alone prove nothing.
+    service: Literal["alphasignal"] = "alphasignal"
+    sentiment_contract: str = SENTIMENT_CONTRACT_VERSION
     status: str
     version: str
     faiss_index_loaded: bool
     sqlite_connected: bool
     chunks_indexed: int
     uptime_seconds: float
+    # Dense-retrieval readiness: vectors whose content hash is recorded
+    # (only those can contribute dense candidates). "unavailable" means
+    # every query runs BM25-only.
+    vectors_total: int = 0
+    vectors_verified: int = 0
+    dense_retrieval: Literal["full", "partial", "unavailable"] = "unavailable"
+    # Active corpus version (alphasignal.store.versioning): corpus_version
+    # covers chunk content + provenance; corpus_consistent means the FAISS
+    # index holds exactly the stored chunks (content_digest == index_digest).
+    corpus_version: str | None = None
+    content_digest: str | None = None
+    index_digest: str | None = None
+    corpus_consistent: bool | None = None
+    chunker_versions: dict[str, int] = {}
 
 
 class ErrorResponse(BaseModel):
