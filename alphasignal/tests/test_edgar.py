@@ -1,15 +1,14 @@
 """Tests for SEC EDGAR ingestion."""
 
 import tempfile
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from alphasignal.ingestion import RawDocument
 from alphasignal.ingestion.edgar import EDGARIngester
-from alphasignal.ingestion.pipeline import IngestionPipeline
 
 
 @pytest.fixture
@@ -72,6 +71,11 @@ def test_fetch_filings_returns_raw_documents(edgar_ingester, tmp_path):
     </html>
     """
     filing_file.write_text(html_content)
+    (filing_file.parent / "full-submission.txt").write_text(
+        "<SEC-HEADER>\nCONFORMED PERIOD OF REPORT:\t20230930\n"
+        "FILED AS OF DATE:\t\t20231103\nCENTRAL INDEX KEY:\t\t\t0000320193\n"
+        "</SEC-HEADER>\n"
+    )
 
     # Mock the downloader
     with patch.object(edgar_ingester, "downloader") as mock_downloader:
@@ -90,6 +94,34 @@ def test_fetch_filings_returns_raw_documents(edgar_ingester, tmp_path):
     assert results[0].source == "SEC EDGAR"
     assert results[0].accession_number == "0001234567-23-000001"
     assert len(results[0].sections) > 0
+    assert str(results[0].filing_date) == "2023-11-03"
+    assert results[0].cik == "320193"
+    assert results[0].url == (
+        "https://www.sec.gov/Archives/edgar/data/320193/000123456723000001/"
+        "0001234567-23-000001-index.htm"
+    )
+
+
+def test_filing_without_sec_header_is_skipped_not_dated_today(edgar_ingester, tmp_path):
+    """Regression (2026-10): a filing with no readable header used to be
+    stamped with today's date as both filing date and period."""
+    with patch.object(edgar_ingester, "downloader") as mock_downloader:
+        mock_downloader.get = MagicMock()
+        base = (
+            Path(edgar_ingester.download_dir)
+            / "sec-edgar-filings"
+            / "MSFT"
+            / "10-K"
+            / "0000789019-23-000001"
+        )
+        base.mkdir(parents=True, exist_ok=True)
+        (base / "primary-document.html").write_text(
+            "<html><body>" + "Business text. " * 80 + "</body></html>"
+        )
+        results = edgar_ingester.fetch_filings(
+            ticker="MSFT", filing_types=["10-K"], years_back=1
+        )
+    assert results == []
 
 
 def test_parse_filing_strips_html_tags(edgar_ingester):
@@ -250,24 +282,20 @@ def test_extract_filing_dates_parses_real_sec_header(edgar_ingester, tmp_path):
     assert filing_date != date.today()
 
 
-def test_extract_filing_dates_missing_submission_file_falls_back_to_today(
+def test_extract_filing_dates_missing_submission_file_returns_none(
     edgar_ingester, tmp_path
 ):
-    """Test that extract_filing_dates falls back to today when the file is absent."""
+    """No SEC header -> no date (2026-10: it used to invent today's date)."""
     filing_dir = tmp_path / "no_submission"
     filing_dir.mkdir()
 
     filing_date, period_of_report = edgar_ingester.extract_filing_dates(filing_dir)
 
-    today = datetime.now().date()
-    assert filing_date == today
-    assert period_of_report == today
+    assert filing_date is None and period_of_report is None
 
 
-def test_extract_filing_dates_missing_filed_date_falls_back_to_today(
-    edgar_ingester, tmp_path
-):
-    """Test that a header without FILED AS OF DATE falls back to today's date."""
+def test_extract_filing_dates_missing_filed_date_returns_none(edgar_ingester, tmp_path):
+    """A header without FILED AS OF DATE yields no date (never today's)."""
     filing_dir = tmp_path / "partial_header"
     filing_dir.mkdir()
     submission = filing_dir / "full-submission.txt"
@@ -275,10 +303,7 @@ def test_extract_filing_dates_missing_filed_date_falls_back_to_today(
 
     filing_date, period_of_report = edgar_ingester.extract_filing_dates(filing_dir)
 
-    today = datetime.now().date()
-    assert filing_date == today
-    # period_of_report falls back to filing_date when no period match either
-    assert period_of_report == today
+    assert filing_date is None and period_of_report is None
 
 
 def test_fetch_filings_skips_ticker_with_no_downloaded_dir(edgar_ingester):

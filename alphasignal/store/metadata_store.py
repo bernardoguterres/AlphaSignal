@@ -38,6 +38,9 @@ class ChunkRecord(SQLModel, table=True):
     # 2026-09-11: "prefer exact persisted source ownership fields over raw
     # string-prefix deletion where practical").
     source_id: str = Field(default="", index=True)
+    accession_number: str | None = None
+    attribution: str = ""
+    period_end: date_type | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -71,52 +74,71 @@ class MetadataStore:
 
         logger.info(f"Initialized metadata store at {db_path}")
 
+    # Columns added after the original schema, with their SQL definitions.
+    # Applied idempotently to any pre-existing `chunks` table.
+    _ADDED_COLUMNS = {
+        "content_hash": "VARCHAR NOT NULL DEFAULT ''",
+        "source_id": "VARCHAR NOT NULL DEFAULT ''",
+        "accession_number": "VARCHAR",
+        "attribution": "VARCHAR NOT NULL DEFAULT ''",
+        "period_end": "DATE",
+    }
+
     def _upgrade_schema(self):
-        """Add a missing `source_id` column to a pre-existing `chunks`
-        table, exactly once, idempotently.
+        """Add every missing post-v1 column to a pre-existing `chunks`
+        table, idempotently, then backfill `content_hash` exactly.
 
-        Never guesses ownership values for existing rows - they get the
-        SQL-level default `''` (unknown source), the same "unknown, treated
-        as untrusted for exact-match lookups" meaning used everywhere else
-        source_id is blank. A brand-new database has no `chunks` table yet
-        at this point, so there's nothing to upgrade - create_all() builds
-        the complete current schema for it right after this method returns.
+        2026-10: this previously added only `source_id`. A database from
+        before `content_hash` existed (the real ~42k-chunk corpus) therefore
+        failed EVERY chunk query with "no such column: chunks.content_hash",
+        so /query and /sentiment errored on the real data while every test
+        (built on fresh databases) passed.
 
-        Raises whatever the underlying ALTER TABLE raises rather than
-        swallowing it - a failed schema upgrade must surface as an
-        actionable startup error, not leave the store silently running
-        against a schema its own queries will later fail against.
+        content_hash is backfilled as sha256(text) - an exact property of
+        the stored text, not a guess. source_id / accession_number /
+        attribution are left empty (unknown) here; the provenance
+        migration script fills them only where it can prove the value.
         """
+        import hashlib
+
         inspector = inspect(self.engine)
         if "chunks" not in inspector.get_table_names():
             return
-
-        existing_columns = {col["name"] for col in inspector.get_columns("chunks")}
-        if "source_id" in existing_columns:
-            return
-
-        logger.warning(
-            f"Upgrading existing 'chunks' table at {self.db_path}: adding "
-            "missing 'source_id' column (idempotent, one-time). Existing "
-            "rows get source_id='' (unknown ownership) - not guessed from "
-            "chunk_id."
-        )
+        existing = {col["name"] for col in inspector.get_columns("chunks")}
+        missing = [c for c in self._ADDED_COLUMNS if c not in existing]
         try:
             with self.engine.begin() as conn:
-                conn.execute(
-                    text(
-                        "ALTER TABLE chunks ADD COLUMN source_id VARCHAR "
-                        "NOT NULL DEFAULT ''"
+                for col in missing:
+                    logger.warning(
+                        f"Upgrading 'chunks' table at {self.db_path}: adding column "
+                        f"'{col}' (idempotent, one-time)"
                     )
-                )
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE chunks ADD COLUMN {col} {self._ADDED_COLUMNS[col]}"
+                        )
+                    )
+                rows = conn.execute(
+                    text("SELECT chunk_id, text FROM chunks WHERE content_hash = ''")
+                ).fetchall()
+                if rows:
+                    logger.warning(f"Backfilling content_hash for {len(rows)} chunks")
+                    conn.execute(
+                        text("UPDATE chunks SET content_hash = :h WHERE chunk_id = :c"),
+                        [
+                            {
+                                "h": hashlib.sha256(t.encode("utf-8")).hexdigest(),
+                                "c": cid,
+                            }
+                            for cid, t in rows
+                        ],
+                    )
         except Exception as e:
             raise RuntimeError(
-                f"Failed to upgrade 'chunks' table at {self.db_path} to add "
-                f"the 'source_id' column: {e}. The database was not "
-                "modified in a way that would corrupt existing data, but "
-                "this MetadataStore cannot start against a schema its own "
-                "queries require - fix the underlying issue (e.g. file "
-                "permissions, disk space) and retry."
+                f"Failed to upgrade 'chunks' table at {self.db_path}: {e}. This "
+                "MetadataStore cannot start against a schema its own queries "
+                "require - fix the underlying issue (e.g. file permissions, disk "
+                "space) and retry."
             ) from e
 
     def add_chunks(self, chunks: list[Chunk]):
@@ -145,6 +167,9 @@ class MetadataStore:
                     total_chunks=chunk.total_chunks,
                     content_hash=chunk.content_hash,
                     source_id=chunk.source_id,
+                    accession_number=chunk.accession_number,
+                    attribution=chunk.attribution,
+                    period_end=chunk.period_end,
                 )
 
                 # Merge (insert or update on conflict) - this already
@@ -175,6 +200,9 @@ class MetadataStore:
             total_chunks=record.total_chunks,
             content_hash=record.content_hash,
             source_id=record.source_id,
+            accession_number=record.accession_number,
+            attribution=record.attribution or "",
+            period_end=record.period_end,
         )
 
     def get_chunk(self, chunk_id: str) -> Chunk | None:
@@ -215,6 +243,51 @@ class MetadataStore:
             records = session.exec(statement).all()
 
             return [self._to_chunk(r) for r in records]
+
+    def version_info(self) -> dict:
+        """content_digest / corpus_version of the stored chunks (see
+        alphasignal.store.versioning) plus counts per chunker version."""
+        from alphasignal.store.versioning import (
+            chunker_versions,
+            content_digest,
+            corpus_digest,
+        )
+
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT chunk_id, content_hash, source_id, accession_number, "
+                    "period_end, date, url, ticker, doc_type, section FROM chunks"
+                )
+            ).fetchall()
+        return {
+            "corpus_version": corpus_digest(tuple(r) for r in rows),
+            "content_digest": content_digest((r[0], r[1]) for r in rows),
+            "chunks": len(rows),
+            "chunker_versions": chunker_versions(r[0] for r in rows),
+        }
+
+    def get_filing_periods(
+        self, ticker: str, with_section: bool = False
+    ) -> list[tuple]:
+        """(chunk_id, doc_type, period_end[, section]) for every filing chunk
+        of a ticker whose reporting period is known."""
+        with Session(self.engine) as session:
+            rows = session.exec(
+                select(
+                    ChunkRecord.chunk_id,
+                    ChunkRecord.doc_type,
+                    ChunkRecord.period_end,
+                    ChunkRecord.section,
+                ).where(
+                    ChunkRecord.ticker == ticker,
+                    ChunkRecord.doc_type.in_(["10-K", "10-Q"]),
+                    ChunkRecord.period_end.is_not(None),
+                )
+            ).all()
+            if with_section:
+                return [tuple(r) for r in rows]
+            return [(cid, dt, pe) for cid, dt, pe, _ in rows]
 
     def get_chunks_by_date_range(
         self, start: date_type, end: date_type, ticker: str | None = None
@@ -326,6 +399,12 @@ class MetadataStore:
         with Session(self.engine) as session:
             statement = select(ChunkRecord.chunk_id)
             return list(session.exec(statement).all())
+
+    def get_content_hashes(self) -> dict[str, str]:
+        """Return {chunk_id: content_hash} for every chunk."""
+        with Session(self.engine) as session:
+            rows = session.exec(select(ChunkRecord.chunk_id, ChunkRecord.content_hash))
+            return {cid: h for cid, h in rows.all()}
 
     def count(self) -> int:
         """Get total number of chunks.

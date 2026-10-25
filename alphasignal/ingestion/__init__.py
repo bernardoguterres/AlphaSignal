@@ -1,7 +1,7 @@
 """Ingestion package data schemas and exports."""
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 
@@ -12,11 +12,16 @@ class RawDocument:
     ticker: str
     doc_type: str  # "10-K" or "10-Q"
     filing_date: date
-    period_of_report: date
+    period_of_report: date | None
     source: str  # "SEC EDGAR"
     sections: dict[str, str]  # section_name → text
     file_path: str
     accession_number: str
+    cik: str | None = None
+    # EDGAR filing index page, built from CIK + accession (provenance link)
+    url: str | None = None
+    # Numeric tables as (section, ExtractedTable), chunked after the prose.
+    tables: list = field(default_factory=list)
 
 
 @dataclass
@@ -29,13 +34,16 @@ class RawArticle:
     published_date: date
     url: str
     source: str  # "Yahoo Finance", "Reuters", etc.
+    # How the article was attributed to `ticker`: "news_title" (company
+    # named in the headline) or "news_body" (named only in the body).
+    attribution: str = "news_body"
 
 
 @dataclass
 class Chunk:
     """Represents a semantic chunk of text ready for embedding."""
 
-    chunk_id: str  # deterministic: f"{ticker}_{source_hash}_{index:04d}"
+    chunk_id: str  # f"{source_id}_{chunker_version}_{index:04d}" (chunker.chunk_id_for)
     ticker: str
     text: str
     token_count: int
@@ -65,6 +73,16 @@ class Chunk:
     # relying on ownership lookups must treat that as "unknown source,"
     # never silently matched.
     source_id: str = ""
+    # SEC accession number for filing chunks (provenance), else None
+    accession_number: str | None = None
+    # "filer" (SEC filing by the company itself), "news_title",
+    # "news_body", or "" (unknown - legacy rows). Sentiment uses only
+    # filer / news_title items; a body-only mention does not establish the
+    # article is ABOUT the company.
+    attribution: str = ""
+    # Filing's reporting period end (SEC "CONFORMED PERIOD OF REPORT"),
+    # distinct from `date` (the filing date). None for news and legacy rows.
+    period_end: date | None = None
 
     def __post_init__(self):
         if not self.content_hash:

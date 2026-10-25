@@ -7,8 +7,39 @@ import re
 import tiktoken
 
 from alphasignal.ingestion import Chunk, RawArticle, RawDocument
+from alphasignal.ingestion.tables import TABLE_SECTION_SUFFIX, render_table
 
 logger = logging.getLogger(__name__)
+
+
+# Version of the chunk-boundary logic (sentence splitting, token budgets,
+# table rendering). It is part of every chunk id, so a boundary change yields
+# NEW ids instead of silently repointing old ones at different text; bump it
+# whenever the same document would chunk differently. Ids from before
+# versioning ("{source}_{index:04d}", the 2015-2026 corpus) are version ch1.
+# The "ch" prefix cannot occur in the 8-hex-digit source hash, so ids parse
+# unambiguously. History: ch2 (2026-10-21, versioned ids), ch3 (2026-10-21,
+# tables whose columns cannot be aligned are rendered without periods),
+# ch4 (2026-10-21, every table states its accounting basis; only ever in a
+# scratch work copy), ch5 (2026-10-21, basis read from the table's own
+# two-sentence introduction, headings and footnotes), ch6 (2026-10-21,
+# tables whose period headings were shifted are rendered NOT ALIGNED; only
+# in a scratch work copy), ch7 (2026-10-21, basis detection corrected after
+# a fresh review: dashes, "as though", row labels, own lead-in, notes).
+CHUNKER_VERSION = "ch7"
+
+
+def chunk_id_for(source_id: str, index: int) -> str:
+    """Deterministic chunk id: stable document identity + chunker version +
+    position."""
+    return f"{source_id}_{CHUNKER_VERSION}_{index:04d}"
+
+
+def source_of(chunk_id: str) -> str:
+    """Document identity of a chunk id (either id format)."""
+    head, _, _ = chunk_id.rpartition("_")
+    stem, _, version = head.rpartition("_")
+    return stem if re.fullmatch(r"ch\d+", version) else head
 
 
 class SemanticChunker:
@@ -317,7 +348,7 @@ class SemanticChunker:
 
             # Create Chunk objects
             for text_chunk in text_chunks:
-                chunk_id = f"{source_hash_prefix}_{chunk_index:04d}"
+                chunk_id = chunk_id_for(source_hash_prefix, chunk_index)
 
                 chunk = Chunk(
                     chunk_id=chunk_id,
@@ -328,13 +359,50 @@ class SemanticChunker:
                     source=doc.source,
                     section=section_name,
                     date=doc.filing_date,
-                    url=None,
+                    url=doc.url,
+                    accession_number=doc.accession_number,
+                    attribution="filer",
                     chunk_index=chunk_index,
                     total_chunks=0,  # Will be updated after processing all sections
                     source_id=source_hash_prefix,
+                    period_end=doc.period_of_report,
                 )
 
                 all_chunks.append(chunk)
+                chunk_index += 1
+
+        # Tables after the prose, so prose chunk ids are unchanged. Each
+        # piece names its document and reporting period in its own text, so
+        # the embedding and BM25 see the period, not only the metadata.
+        context = f"Financial table from {doc.ticker} Form {doc.doc_type}" + (
+            f", reporting period ended {doc.period_of_report.isoformat()}"
+            if doc.period_of_report
+            else ""
+        )
+        context += f", filed {doc.filing_date.isoformat()}"
+        for section_name, table in doc.tables:
+            for piece in render_table(
+                table, context, self.max_tokens, self.count_tokens
+            ):
+                all_chunks.append(
+                    Chunk(
+                        chunk_id=chunk_id_for(source_hash_prefix, chunk_index),
+                        ticker=doc.ticker,
+                        text=piece,
+                        token_count=self.count_tokens(piece),
+                        doc_type=doc.doc_type,
+                        source=doc.source,
+                        section=f"{section_name}{TABLE_SECTION_SUFFIX}",
+                        date=doc.filing_date,
+                        url=doc.url,
+                        accession_number=doc.accession_number,
+                        attribution="filer",
+                        chunk_index=chunk_index,
+                        total_chunks=0,
+                        source_id=source_hash_prefix,
+                        period_end=doc.period_of_report,
+                    )
+                )
                 chunk_index += 1
 
         # Update total_chunks for all chunks
@@ -362,7 +430,7 @@ class SemanticChunker:
 
         # If article is short enough, return as single chunk
         if article_tokens <= self.max_tokens:
-            chunk_id = f"{source_hash_prefix}_0000"
+            chunk_id = chunk_id_for(source_hash_prefix, 0)
 
             chunk = Chunk(
                 chunk_id=chunk_id,
@@ -374,6 +442,7 @@ class SemanticChunker:
                 section=None,
                 date=article.published_date,
                 url=article.url,
+                attribution=article.attribution,
                 chunk_index=0,
                 total_chunks=1,
                 source_id=source_hash_prefix,
@@ -386,7 +455,7 @@ class SemanticChunker:
         chunks = []
 
         for i, text_chunk in enumerate(text_chunks):
-            chunk_id = f"{source_hash_prefix}_{i:04d}"
+            chunk_id = chunk_id_for(source_hash_prefix, i)
 
             chunk = Chunk(
                 chunk_id=chunk_id,
@@ -398,6 +467,7 @@ class SemanticChunker:
                 section=None,
                 date=article.published_date,
                 url=article.url,
+                attribution=article.attribution,
                 chunk_index=i,
                 total_chunks=len(text_chunks),
                 source_id=source_hash_prefix,

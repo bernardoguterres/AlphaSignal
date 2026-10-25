@@ -1,6 +1,7 @@
 """Financial news ingestion module."""
 
 import logging
+import re
 from datetime import date, datetime, timedelta
 
 import feedparser
@@ -19,10 +20,24 @@ TICKER_TO_COMPANY = {
     "NVDA": ["Nvidia", "NVDA"],
     "META": ["Meta", "Facebook", "META"],
     "TSLA": ["Tesla", "TSLA"],
-    "JPM": ["JPMorgan", "JP Morgan", "JPM"],
+    "JPM": ["JPMorgan", "JPMorganChase", "JP Morgan", "JPM"],
     "GS": ["Goldman Sachs", "Goldman", "GS"],
     "MS": ["Morgan Stanley", "MS"],
 }
+
+
+def mentions_company(text: str, ticker: str) -> bool:
+    """True if `text` names the company as a whole word.
+
+    Matching is case-sensitive on the listed spelling (or its all-caps form)
+    and bounded by non-alphanumerics, so "GS" does not match "earnings",
+    "Meta" does not match "metals" and "Apple" does not match "Pineapple".
+    """
+    for name in TICKER_TO_COMPANY.get(ticker, [ticker]):
+        pattern = "|".join(re.escape(v) for v in {name, name.upper()})
+        if re.search(rf"(?<![A-Za-z0-9])(?:{pattern})(?![A-Za-z0-9])", text):
+            return True
+    return False
 
 
 class NewsIngester:
@@ -137,7 +152,10 @@ class NewsIngester:
                     published.tm_year, published.tm_mon, published.tm_mday
                 )
             else:
-                published_date = date.today()
+                # No publication date: skip rather than stamp it with today
+                # (an invented date would make stale news look fresh).
+                logger.debug("Skipping undated feed entry")
+                return None
 
             # Extract content (try summary first, then content)
             content = ""
@@ -183,15 +201,13 @@ class NewsIngester:
         Returns:
             True if article mentions ticker or company name
         """
-        # Combine title and content for searching
-        text = (article.title + " " + article.content).lower()
-
-        # Get company names for this ticker
-        company_names = TICKER_TO_COMPANY.get(ticker, [ticker])
-
-        # Check if any company name appears in the text
-        for name in company_names:
-            if name.lower() in text:
-                return True
-
+        # Record HOW the article was attributed: a headline mention is a
+        # reasonable proxy for "about this company"; a body-only mention
+        # (e.g. a bank quoted as an analyst on another company) is not.
+        if mentions_company(article.title, ticker):
+            article.attribution = "news_title"
+            return True
+        if mentions_company(article.content, ticker):
+            article.attribution = "news_body"
+            return True
         return False

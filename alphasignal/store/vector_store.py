@@ -640,15 +640,26 @@ class VectorStore:
         norm = np.linalg.norm(query_embedding)
         normalized_query = query_embedding / (norm + 1e-8)
 
-        # Search for more candidates than needed to allow for filtering
-        search_k = min(k * 3, len(self.chunk_ids)) if filter_ids else k
-        search_k = max(search_k, 1)
-
         # Reshape for FAISS
         query_vector = normalized_query.reshape(1, -1).astype(np.float32)
 
-        # Search
-        scores, indices = self.index.search(query_vector, search_k)
+        if filter_ids:
+            # Exact search restricted to the filtered vectors. This used to
+            # take the global top k*3 and filter afterwards, so a ticker (or
+            # single-filing) filter only ever saw the few of its chunks that
+            # happened to rank in the whole corpus's top k*3 (2026-10).
+            positions = np.array(
+                [i for i, cid in enumerate(self.chunk_ids) if cid in filter_ids],
+                dtype=np.int64,
+            )
+            if positions.size == 0:
+                return []
+            params = faiss.SearchParameters(sel=faiss.IDSelectorBatch(positions))
+            scores, indices = self.index.search(
+                query_vector, min(k, int(positions.size)), params=params
+            )
+        else:
+            scores, indices = self.index.search(query_vector, max(k, 1))
 
         # Build results
         results = []
@@ -672,6 +683,16 @@ class VectorStore:
                 break
 
         return results
+
+    def content_digest(self) -> str:
+        """Digest of the indexed (chunk_id, content_hash) pairs - equal to the
+        metadata store's content_digest only when both hold the same chunks
+        with the same content (see alphasignal.store.versioning)."""
+        from alphasignal.store.versioning import content_digest
+
+        return content_digest(
+            (cid, self.content_hashes.get(cid, "")) for cid in self.chunk_ids
+        )
 
     def __len__(self) -> int:
         """Return number of vectors in the index."""

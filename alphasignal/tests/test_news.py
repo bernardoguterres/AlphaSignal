@@ -282,7 +282,10 @@ def test_parse_article_cleans_html(news_ingester):
     """Test that parse_article removes HTML tags from content."""
     # Create entry with HTML content (make sure it's > 50 chars after cleaning)
     entry = MagicMock()
-    entry.get = MagicMock(return_value=None)
+    published = time.struct_time((2024, 1, 1, 12, 0, 0, 0, 0, 0))
+    entry.get = MagicMock(
+        side_effect=lambda k, d=None: published if k == "published_parsed" else d
+    )
     entry.title = "Test Article"
     entry.link = "https://example.com/test"
     entry.summary = """
@@ -386,6 +389,7 @@ def test_parse_article_uses_content_field_when_no_summary(news_ingester):
         side_effect=lambda key, default=None: {
             "title": "Content Field Article",
             "link": "https://example.com/content-field",
+            "published_parsed": time.struct_time((2024, 1, 1, 12, 0, 0, 0, 0, 0)),
         }.get(key, default)
     )
     entry.title = "Content Field Article"
@@ -432,3 +436,40 @@ def test_fetch_articles_handles_network_error(news_ingester):
         results = news_ingester.fetch_articles(ticker)
 
         assert results == []
+
+
+def test_undated_entry_is_skipped_not_dated_today(news_ingester):
+    """Regression (2026-10): an entry with no publication date used to be
+    stamped with today's date, making old news look fresh."""
+    entry = MagicMock()
+    entry.get = MagicMock(
+        side_effect=lambda k, d=None: {"title": "Undated", "link": "https://x/y"}.get(
+            k, d
+        )
+    )
+    entry.title = "Undated"
+    entry.link = "https://x/y"
+    entry.summary = "Apple " * 40
+    assert news_ingester.parse_article(entry) is None
+
+
+@pytest.mark.parametrize(
+    "ticker,title,expected",
+    [
+        ("GS", "Nvidia earnings beat estimates", False),
+        ("META", "Gold and metals rally", False),
+        ("AAPL", "Pineapple Express IPO", False),
+        ("MS", "Chip systems and programs", False),
+        ("GS", "Goldman Sachs raises dividend", True),
+        ("GS", "GS shares fall after earnings", True),
+        ("META", "Meta's AI spending grows", True),
+        ("AAPL", "APPLE UNVEILS NEW IPHONE", True),
+        ("JPM", "JPMorganChase Files Form 10-Q", True),
+    ],
+)
+def test_company_mention_is_whole_word(ticker, title, expected):
+    """Regression (2026-10 review): substring matching attributed "earnings"
+    to GS, "metals" to META and "Pineapple" to AAPL."""
+    from alphasignal.ingestion.news import mentions_company
+
+    assert mentions_company(title, ticker) is expected

@@ -9,7 +9,7 @@ import numpy as np
 from alphasignal.embeddings.cache import EmbeddingCache
 from alphasignal.embeddings.embedder import Embedder
 from alphasignal.ingestion import Chunk, RawArticle, RawDocument
-from alphasignal.ingestion.chunker import SemanticChunker
+from alphasignal.ingestion.chunker import SemanticChunker, source_of
 from alphasignal.ingestion.edgar import EDGARIngester
 from alphasignal.ingestion.news import NewsIngester
 from alphasignal.store.metadata_store import MetadataStore
@@ -156,6 +156,7 @@ class IngestionPipeline:
         ticker: str,
         filing_types: list[str] | None = None,
         years_back: int | None = None,
+        include_news: bool = True,
     ) -> tuple[list[RawDocument], list[RawArticle]]:
         """Ingest both SEC filings and news articles for a ticker.
 
@@ -163,6 +164,8 @@ class IngestionPipeline:
             ticker: Stock ticker symbol
             filing_types: Filing types to fetch. Defaults to config value.
             years_back: Years of historical filings to fetch. Defaults to config value.
+            include_news: Also fetch current news (default). False re-ingests
+                filings only, leaving the news in the corpus as it is.
 
         Returns:
             Tuple of (raw_documents, raw_articles)
@@ -175,7 +178,7 @@ class IngestionPipeline:
         )
 
         # Ingest news articles
-        articles = self.ingest_ticker_news(ticker)
+        articles = self.ingest_ticker_news(ticker) if include_news else []
 
         logger.info(
             f"Completed full ingestion for {ticker}: "
@@ -273,12 +276,12 @@ class IngestionPipeline:
     def _source_prefix(chunk_id: str) -> str:
         """Return the source-document identity portion of a chunk_id.
 
-        chunk_id format is `{source_prefix}_{chunk_index:04d}` (see
-        SemanticChunker.chunk_document/chunk_article) - stripping the
-        trailing `_index` isolates "which document/article this came from"
-        from "which position within it".
+        chunk_id format is `{source_prefix}_{chunker_version}_{index:04d}`
+        (legacy: `{source_prefix}_{index:04d}`; see chunker.chunk_id_for) -
+        stripping version and index isolates "which document/article this
+        came from" from "which position within it".
         """
-        return chunk_id.rsplit("_", 1)[0]
+        return source_of(chunk_id)
 
     def store_chunks(
         self,
@@ -376,6 +379,7 @@ class IngestionPipeline:
         ticker: str,
         filing_types: list[str] | None = None,
         years_back: int | None = None,
+        include_news: bool = True,
     ) -> IngestResult:
         """Run complete ingestion pipeline: ingest → chunk → embed → store.
 
@@ -383,6 +387,7 @@ class IngestionPipeline:
             ticker: Stock ticker symbol
             filing_types: Filing types to fetch. Defaults to config value.
             years_back: Years of historical filings to fetch. Defaults to config value.
+            include_news: Also fetch current news (default True).
 
         Returns:
             IngestResult with counts
@@ -393,7 +398,10 @@ class IngestionPipeline:
         # chunk list, so source_prefixes below can be computed even for a
         # document/article that yields zero chunks this run)
         raw_docs, articles = self.ingest_ticker(
-            ticker, filing_types=filing_types, years_back=years_back
+            ticker,
+            filing_types=filing_types,
+            years_back=years_back,
+            include_news=include_news,
         )
         doc_chunks = self.chunk_documents(raw_docs)
         article_chunks = self.chunk_articles(articles)

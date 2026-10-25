@@ -1,6 +1,7 @@
 """Pytest configuration and fixtures for AlphaSignal tests."""
 
 import os
+import socket as _socket
 import tempfile
 import time
 from pathlib import Path
@@ -168,3 +169,49 @@ def mock_config():
             "embeddings_cache_path": "test_data/embeddings_cache",
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Network guard (2026-10): no test may reach a real external service
+# (broker, Telegram, OpenAI, SEC, Yahoo). Loopback stays allowed for the
+# local broker simulator and in-process servers. Added after finding that a
+# notifier test's background retry thread outlived its httpx.post patch and
+# sent a real request to api.telegram.org (with a dummy token -> 404).
+# ---------------------------------------------------------------------------
+_REAL_CONNECT = _socket.socket.connect
+_REAL_CONNECT_EX = _socket.socket.connect_ex
+
+
+def _is_loopback(address) -> bool:
+    if isinstance(address, tuple) and address:
+        host = str(address[0])
+        return host in ("127.0.0.1", "::1", "localhost") or host.startswith("127.")
+    return True  # unix-domain sockets
+
+
+def _guarded_connect(self, address):
+    if not _is_loopback(address):
+        raise ConnectionRefusedError(f"test network guard: blocked {address}")
+    return _REAL_CONNECT(self, address)
+
+
+def _guarded_connect_ex(self, address):
+    if not _is_loopback(address):
+        return 111  # ECONNREFUSED
+    return _REAL_CONNECT_EX(self, address)
+
+
+# Installed for the whole session and never undone: background threads
+# (notifier retries, listeners) can outlive the test that started them.
+_socket.socket.connect = _guarded_connect
+_socket.socket.connect_ex = _guarded_connect_ex
+
+
+@pytest.fixture(autouse=True)
+def _no_sec_ticker_map_fetch():
+    """sec_edgar_downloader.Downloader() downloads SEC's ticker->CIK map in
+    its constructor, so every fixture that builds an IngestionPipeline used
+    to make a real request to sec.gov. Tests that need specific Downloader
+    behaviour patch it themselves (their patch takes precedence)."""
+    with patch("alphasignal.ingestion.edgar.Downloader"):
+        yield

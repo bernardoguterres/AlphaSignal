@@ -10,8 +10,22 @@ from bs4 import BeautifulSoup
 from sec_edgar_downloader import Downloader
 
 from alphasignal.ingestion import RawDocument
+from alphasignal.ingestion.tables import ExtractedTable, extract_tables
 
 logger = logging.getLogger(__name__)
+
+
+def edgar_filing_url(cik: str | None, accession_number: str | None) -> str | None:
+    """EDGAR filing index page for a filing, e.g.
+    https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/0000320193-25-000079-index.htm
+    """
+    if not cik or not accession_number:
+        return None
+    nodash = accession_number.replace("-", "")
+    return (
+        f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{nodash}/"
+        f"{accession_number}-index.htm"
+    )
 
 
 class EDGARIngester:
@@ -133,6 +147,7 @@ class EDGARIngester:
 
                     # Extract sections
                     sections = self.extract_sections(text, filing_type)
+                    tables = self.parse_tables(filing_path, filing_type)
 
                     # Extract metadata from directory name (accession number)
                     accession_number = filing_dir.name
@@ -141,6 +156,14 @@ class EDGARIngester:
                     filing_date, period_of_report = self.extract_filing_dates(
                         filing_dir
                     )
+                    if filing_date is None:
+                        # Never invent a date (it used to fall back to today,
+                        # silently misdating the filing).
+                        logger.warning(
+                            f"Skipping {filing_dir}: no FILED AS OF DATE in SEC header"
+                        )
+                        continue
+                    cik = self.extract_cik(filing_dir)
 
                     # Create RawDocument
                     raw_doc = RawDocument(
@@ -152,6 +175,9 @@ class EDGARIngester:
                         sections=sections,
                         file_path=str(filing_path),
                         accession_number=accession_number,
+                        cik=cik,
+                        url=edgar_filing_url(cik, accession_number),
+                        tables=tables,
                     )
                     raw_documents.append(raw_doc)
 
@@ -178,45 +204,52 @@ class EDGARIngester:
             filing_dir: Directory containing the downloaded filing
 
         Returns:
-            Tuple of (filing_date, period_of_report). Falls back to today's
-            date for either field if it can't be found in the header.
+            Tuple of (filing_date, period_of_report); either is None when the
+            header does not state it. A missing period is never replaced by
+            the filing date - retrieval uses it to tell fiscal periods apart.
         """
-        today = datetime.now().date()
         submission_path = filing_dir / "full-submission.txt"
 
         if not submission_path.exists():
-            logger.warning(
-                f"No full-submission.txt in {filing_dir}, using today's date"
-            )
-            return today, today
+            logger.warning(f"No full-submission.txt in {filing_dir}")
+            return None, None
 
         try:
             with open(submission_path, "r", encoding="utf-8", errors="ignore") as f:
                 header = f.read(4000)  # header appears within the first few KB
         except Exception as e:
-            logger.warning(f"Could not read {submission_path}: {e}, using today's date")
-            return today, today
+            logger.warning(f"Could not read {submission_path}: {e}")
+            return None, None
 
         filed_match = re.search(r"FILED AS OF DATE:\s*(\d{8})", header)
         period_match = re.search(r"CONFORMED PERIOD OF REPORT:\s*(\d{8})", header)
 
-        filing_date = (
-            datetime.strptime(filed_match.group(1), "%Y%m%d").date()
-            if filed_match
-            else today
-        )
+        if not filed_match:
+            logger.warning(f"Could not find FILED AS OF DATE in {submission_path}")
+            return None, None
+        filing_date = datetime.strptime(filed_match.group(1), "%Y%m%d").date()
         period_of_report = (
             datetime.strptime(period_match.group(1), "%Y%m%d").date()
             if period_match
-            else filing_date
+            else None
         )
 
-        if not filed_match:
-            logger.warning(
-                f"Could not find FILED AS OF DATE in {submission_path}, using today's date"
-            )
-
         return filing_date, period_of_report
+
+    def extract_cik(self, filing_dir: Path) -> str | None:
+        """CENTRAL INDEX KEY of the filer from the SEC header, or None."""
+        try:
+            with open(
+                filing_dir / "full-submission.txt",
+                "r",
+                encoding="utf-8",
+                errors="ignore",
+            ) as f:
+                header = f.read(6000)
+        except Exception:
+            return None
+        m = re.search(r"CENTRAL INDEX KEY:\s*(\d+)", header)
+        return str(int(m.group(1))) if m else None
 
     def parse_filing(self, filing_path: Path) -> str:
         """Parse a SEC filing and extract clean text.
@@ -275,6 +308,31 @@ class EDGARIngester:
         except Exception as e:
             logger.error(f"Error parsing filing {filing_path}: {e}")
             return ""
+
+    def parse_tables(
+        self, filing_path: Path, doc_type: str
+    ) -> list[tuple[str, ExtractedTable]]:
+        """Numeric tables of an HTML filing with the section each sits in.
+
+        Separate from parse_filing so the prose text (and therefore every
+        existing prose chunk id and content hash) is unchanged. A failure
+        here never blocks the prose ingest - the filing is kept without
+        tables and the error logged.
+        """
+        if filing_path.suffix.lower() not in (".htm", ".html"):
+            return []
+        try:
+            html = filing_path.read_text(encoding="utf-8", errors="ignore")
+            tables, marked = extract_tables(html)
+            sections = self.extract_sections(marked, doc_type)
+            where: dict[int, str] = {}
+            for name, body in sections.items():
+                for m in re.finditer(r"\[\[TABLE (\d+)\]\]", body):
+                    where.setdefault(int(m.group(1)), name)
+            return [(where.get(t.index, "front_matter"), t) for t in tables]
+        except Exception as e:
+            logger.error(f"Table extraction failed for {filing_path}: {e}")
+            return []
 
     def extract_sections(self, text: str, doc_type: str) -> dict[str, str]:
         """Extract specific sections from a SEC filing.
