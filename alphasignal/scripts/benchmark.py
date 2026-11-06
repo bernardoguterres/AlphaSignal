@@ -23,26 +23,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# All rows evaluate the same already-ingested corpus. Only retrieval weights
-# and reranking vary; no row claims to benchmark a different chunker.
+# All rows evaluate the same already-ingested corpus and shared retrieval
+# pipeline. Both candidate searches (and any period/table lanes) still run;
+# zeroing a weight does not make this a pure dense/sparse retrieval ablation.
+# Only scoring weights and reranking vary, not chunking or search costs.
 CONFIGS_TO_BENCHMARK = [
     {
-        "name": "Dense only",
+        "name": "Dense weighting (shared retrieval pipeline)",
         "retrieval": "dense_only",
         "reranking": False,
     },
     {
-        "name": "Sparse only",
+        "name": "Sparse weighting (shared retrieval pipeline)",
         "retrieval": "sparse_only",
         "reranking": False,
     },
     {
-        "name": "Hybrid",
+        "name": "Hybrid weighting",
         "retrieval": "hybrid",
         "reranking": False,
     },
     {
-        "name": "Hybrid + reranker",
+        "name": "Hybrid weighting + reranker",
         "retrieval": "hybrid",
         "reranking": True,
     },
