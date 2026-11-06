@@ -41,6 +41,10 @@ def client(tmp_path):
         "alphasignal.generation.generator.OpenAI"
     ), patch("alphasignal.generation.sentiment.OpenAI"), patch(
         "alphasignal.retrieval.reranker.CrossEncoder"
+    ), patch(
+        # These endpoint tests mock ingestion itself. Avoid initializing its
+        # tokenizer, which otherwise downloads vocabulary on a fresh machine.
+        "alphasignal.ingestion.pipeline.SemanticChunker"
     ):
 
         # Create test client without lifespan
@@ -475,6 +479,35 @@ def test_query_endpoint_handles_openai_error(client):
         )
 
     assert response.status_code == 503
+
+
+@pytest.mark.parametrize("failure", ["provider", "malformed_response"])
+def test_query_generation_failure_returns_503_and_records_error(
+    client, mock_retrieved_chunks, failure
+):
+    """Exercise the real generator, not a mocked generate() that already raises."""
+    from openai import OpenAIError
+
+    state = client.app.state.app_state
+    before = state.metrics_collector.get_summary()
+    with patch.object(
+        state.retriever, "retrieve", return_value=mock_retrieved_chunks
+    ), patch.object(
+        state.reranker, "rerank", return_value=mock_retrieved_chunks
+    ), patch.object(
+        state.generator.client.chat.completions, "create"
+    ) as create:
+        if failure == "provider":
+            create.side_effect = OpenAIError("provider unavailable: private detail")
+        else:
+            create.return_value.choices = []
+        response = client.post("/query/", json={"query": "What is the revenue?"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "AI service temporarily unavailable"}
+    after = state.metrics_collector.get_summary()
+    assert after["errors"]["count"] == before["errors"]["count"] + 1
+    assert after["query"]["count"] == before["query"]["count"]
 
 
 def test_ingest_endpoint_handles_pipeline_failure(client):

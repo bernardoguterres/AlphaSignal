@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from alphasignal.retrieval import RetrievedChunk
 
 
+class GenerationError(RuntimeError):
+    """Answer generation failed; distinct from a successful abstention."""
+
+
 @dataclass
 class GenerationResult:
     """Result from RAG answer generation."""
@@ -36,4 +40,4 @@ class SentimentResult:
     reliable: bool = True
 
 
-__all__ = ["GenerationResult", "SentimentResult"]
+__all__ = ["GenerationError", "GenerationResult", "SentimentResult"]

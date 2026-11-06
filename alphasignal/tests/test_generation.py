@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from alphasignal.generation import GenerationResult
+from alphasignal.generation import GenerationError, GenerationResult
 from alphasignal.generation.generator import RAGGenerator
 from alphasignal.retrieval import RetrievedChunk
 
@@ -272,7 +272,7 @@ def test_rag_generator_handles_empty_chunks(test_config):
 
 
 def test_rag_generator_handles_api_error(test_config, test_chunks):
-    """Test that generator handles OpenAI API errors gracefully."""
+    """Failures propagate distinctly from successful answers or abstentions."""
     with patch("alphasignal.generation.generator.OpenAI") as MockOpenAI:
         # Mock OpenAI to raise an exception
         mock_client = MagicMock()
@@ -280,9 +280,6 @@ def test_rag_generator_handles_api_error(test_config, test_chunks):
         MockOpenAI.return_value = mock_client
 
         generator = RAGGenerator(test_config)
-        result = generator.generate("What is Apple's revenue?", test_chunks)
-
-        # Should return error response without raising
-        assert isinstance(result, GenerationResult)
-        assert "error occurred" in result.answer.lower()
-        assert len(result.cited_chunks) == 0
+        with pytest.raises(GenerationError, match="Answer generation failed") as exc:
+            generator.generate("What is Apple's revenue?", test_chunks)
+        assert str(exc.value.__cause__) == "API Error"
