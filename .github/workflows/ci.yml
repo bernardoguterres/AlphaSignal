@@ -21,6 +21,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Cache tokenizer vocabulary before offline tests
+        # The test network guard intentionally blocks all external connections.
+        # Fetch this public, hash-verified asset before the guard is installed.
+        run: python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+
       - name: Run tests
         run: pytest alphasignal/tests/ -v --tb=short --cov=alphasignal --cov-report=term-missing
         env:
