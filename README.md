@@ -177,7 +177,7 @@ There are two separate, unrelated evaluation assets - do not confuse them:
 | `evaluation/heldout_2026-10-20_draft.json` (+ `heldout_run_2026-10-20.json`) | Same three measures | 11 questions (AAPL/AMZN/TSLA/META prose, NVDA/MSFT/JPM table figures, unanswerable, false premises) | Inspected after its 2026-10-20 run and used to design the table lane: **development data now**, not untouched. 4 labels flagged for review |
 | `evaluation/heldout3_2026-10-21_draft.json` (+ `heldout3_run_2026-10-21.json`) | Same three measures | 10 questions (table figures, comparative periods, prose periods, false premise, unanswerable, prose-not-displaced) | Labels written and source-checked before the code was frozen, run once. Model-drafted; 2 labels flagged |
 
-**Retrieval:** `benchmark.py` refuses to run against the unannotated golden set rather than report meaningless all-zero metrics; annotation (`annotate_golden_set.py`) has to happen first. Its four configurations only vary hybrid weighting and reranking - "naive vs. semantic chunking" labels are aspirational, since only `SemanticChunker` exists.
+**Retrieval:** `benchmark.py` refuses to run against the unannotated golden set rather than report meaningless all-zero metrics; annotation (`annotate_golden_set.py`) has to happen first. Its four configurations compare dense-only weighting, sparse-only weighting, configured hybrid weighting, and hybrid weighting with reranking on the same existing corpus. Each run uses an independent configuration; chunking is not varied.
 
 **Sentiment:** the 15-entry fixture carries explicit `expected_sentiment` labels, but `run_eval.py` calls `GET /sentiment/{ticker}?date_to=<event_date>` and never submits the event description to the model - it measures corpus context around a known date, not whether the model interprets a described event. Accuracy and the Sharpe-style backtest use only genuinely produced, available predictions; an unavailable one is never substituted with its own expected label, and prediction coverage (`predictions_available / actionable`) is reported separately. Events inside the 2020-2023 gap show up as reduced coverage, not a misleading result. Committed dated result files document this fixture's output, not validated accuracy.
 
@@ -315,6 +315,8 @@ uvicorn alphasignal.api.app:app --reload --host 0.0.0.0 --port 8000
 | `POST /ingest/batch` | Multi-ticker ingest, one BM25 rebuild | X-API-Key when configured |
 | `GET /health` | FAISS/SQLite load status, chunk count | None (healthcheck can't send headers) |
 | `GET /metrics` | Latency percentiles, error counts | X-API-Key when configured |
+
+`POST /query` returns HTTP 503 with a generic error detail if answer generation fails, and records an error metric. It does not return provider failures as successful answers. No matching evidence and successful model abstentions remain HTTP 200 responses.
 
 Ticker handling is a deliberate policy, not one uniform shape. `GET /sentiment/{ticker}` (and `/summary`) and `POST /ingest/{ticker}` treat the ticker as a resource identifier, so an unconfigured ticker returns `404`. `POST /ingest/batch` instead records it as a per-item `"failed"` result, so one bad item doesn't discard the rest of the batch. `POST /query`'s `ticker_filter` is an optional search filter, not a resource identifier - an unrecognized value simply yields no matching chunks.
 

@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import time
+from copy import deepcopy
 from pathlib import Path
 
 # Add project root to path
@@ -22,36 +23,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# Benchmark configurations
-#
-# NOTE: "chunking" is not actually varied between rows. Only SemanticChunker
-# is implemented, and these benchmarks evaluate retrieval against the corpus
-# as it was already ingested on disk - they don't re-ingest with a different
-# chunking strategy per row. The "chunking" field is kept for future use once
-# a second chunker (e.g. naive fixed-window) exists, but a warning is logged
-# below so results aren't misread as a real chunking comparison.
+# All rows evaluate the same already-ingested corpus. Only retrieval weights
+# and reranking vary; no row claims to benchmark a different chunker.
 CONFIGS_TO_BENCHMARK = [
     {
-        "name": "Baseline: naive chunks + dense only",
-        "chunking": "naive_512",
+        "name": "Dense only",
         "retrieval": "dense_only",
         "reranking": False,
     },
     {
-        "name": "Semantic chunks + dense only",
-        "chunking": "semantic",
-        "retrieval": "dense_only",
+        "name": "Sparse only",
+        "retrieval": "sparse_only",
         "reranking": False,
     },
     {
-        "name": "Semantic chunks + hybrid",
-        "chunking": "semantic",
+        "name": "Hybrid",
         "retrieval": "hybrid",
         "reranking": False,
     },
     {
-        "name": "Semantic chunks + hybrid + reranker",
-        "chunking": "semantic",
+        "name": "Hybrid + reranker",
         "retrieval": "hybrid",
         "reranking": True,
     },
@@ -73,29 +64,23 @@ def run_benchmark_config(config_spec, base_config, golden_set_path):
     print(f"Benchmarking: {config_spec['name']}")
     print(f"{'=' * 80}")
 
-    logger.warning(
-        f"chunking={config_spec['chunking']!r} is not actually applied - only "
-        "SemanticChunker is implemented, so this row evaluates the corpus as "
-        "already ingested on disk, not a re-chunked variant."
-    )
+    logger.info("Evaluating the existing corpus without changing chunking")
 
-    # Initialize components
-    vector_store, metadata_store, embedder = build_storage_components(base_config)
-
-    # Modify config based on benchmark spec
-    modified_config = base_config.copy()
+    # Isolate nested settings before passing them to any component.
+    modified_config = deepcopy(base_config)
 
     # Adjust retrieval weights based on retrieval mode
-    if config_spec["retrieval"] == "dense_only":
-        # Disable BM25 by setting weight to 0
-        if "retrieval" not in modified_config:
-            modified_config["retrieval"] = {}
-        if "hybrid_weights" not in modified_config["retrieval"]:
-            modified_config["retrieval"]["hybrid_weights"] = {}
+    mode = config_spec["retrieval"]
+    if mode in {"dense_only", "sparse_only"}:
+        retrieval = modified_config.setdefault("retrieval", {})
+        retrieval["hybrid_weights"] = {
+            "bm25": 1.0 if mode == "sparse_only" else 0.0,
+            "dense": 1.0 if mode == "dense_only" else 0.0,
+        }
+    elif mode != "hybrid":
+        raise ValueError(f"Unknown retrieval mode: {mode}")
 
-        modified_config["retrieval"]["hybrid_weights"]["bm25"] = 0.0
-        modified_config["retrieval"]["hybrid_weights"]["dense"] = 1.0
-        logger.info("Using dense-only retrieval (BM25 weight = 0)")
+    vector_store, metadata_store, embedder = build_storage_components(modified_config)
 
     # Initialize retriever
     retriever = HybridRetriever(modified_config, embedder, vector_store, metadata_store)

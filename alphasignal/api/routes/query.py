@@ -14,6 +14,7 @@ from alphasignal.api.dependencies import (
     get_retriever,
 )
 from alphasignal.generation.support import assess_support
+from alphasignal.generation import GenerationError
 from alphasignal.api.schemas import Citation, QueryRequest, QueryResponse
 from alphasignal.generation.generator import RAGGenerator
 from alphasignal.monitoring.metrics import MetricsCollector
@@ -174,7 +175,7 @@ def query(
     except Exception as e:
         logger.error(f"Error processing query: {e}", exc_info=True)
         metrics_collector.record_error()
-        if isinstance(e, OpenAIError):
+        if isinstance(e, (OpenAIError, GenerationError)):
             raise HTTPException(
                 status_code=503, detail="AI service temporarily unavailable"
             )
