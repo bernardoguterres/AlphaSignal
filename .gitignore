@@ -41,11 +41,12 @@ data/
 *.db
 *.faiss
 
-# Testing
+# Testing & Evaluation artifacts
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
+evaluation/*_dryrun.json
 
 # OS
 .DS_Store
