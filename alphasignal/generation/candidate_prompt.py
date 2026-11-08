@@ -11,7 +11,7 @@ Evaluation benchmark findings:
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 CANDIDATE_PROMPT_VERSION = 3
 
@@ -38,8 +38,11 @@ Respond ONLY with a JSON object in exactly this format:
     "summary": <one sentence summarising the sentiment and main topics for {target_ticker}>
 }}"""
 
+# Alias for canonical v3 prompt template
+CANDIDATE_PROMPT_V3 = CANDIDATE_USER_PROMPT_TEMPLATE
 
-def format_candidate_prompt(target_ticker: str, excerpt: str) -> list[dict[str, str]]:
+
+def format_candidate_prompt(target_ticker: str, excerpt: str) -> List[Dict[str, str]]:
     """Format messages payload for candidate prompt evaluation."""
     user_content = (
         f"{CANDIDATE_USER_PROMPT_TEMPLATE.format(target_ticker=target_ticker)}\n\n"

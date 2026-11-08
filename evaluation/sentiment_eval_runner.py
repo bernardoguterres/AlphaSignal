@@ -22,7 +22,16 @@ import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from alphasignal.generation.candidate_prompt import CANDIDATE_PROMPT_VERSION, CANDIDATE_PROMPT_V3
+# Ensure repository root is on sys.path when invoked directly
+repo_root = Path(__file__).resolve().parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
+from alphasignal.generation.candidate_prompt import (
+    CANDIDATE_PROMPT_VERSION,
+    CANDIDATE_PROMPT_V3,
+    format_candidate_prompt,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -169,7 +178,7 @@ def simulate_offline_prediction(example: Dict[str, Any], prompt_type: str) -> Di
     """Generate deterministic simulated predictions for offline pipeline verification.
     
     Reflects the structural differences between Baseline and Candidate v3:
-    - Baseline v2 struggles on competitor mentions,Guidance cuts, and past litigations.
+    - Baseline v2 struggles on competitor mentions, guidance cuts, and past litigations.
     - Candidate v3 isolates target ticker, discounts historical risks, and respects guidance.
     """
     cat = example["category"]
@@ -246,9 +255,13 @@ def evaluate_single(
     if prompt_type == "baseline":
         prompt_text = BASELINE_PROMPT_TEMPLATE.format(target_ticker=target_ticker, excerpt=excerpt)
         prompt_version = BASELINE_PROMPT_VERSION
+        messages = [
+            {"role": "system", "content": "You are a professional financial equity research analyst specializing in quantitative disclosures and SEC filings."},
+            {"role": "user", "content": prompt_text},
+        ]
     else:
-        prompt_text = CANDIDATE_PROMPT_TEMPLATE.format(target_ticker=target_ticker, excerpt=excerpt)
         prompt_version = CANDIDATE_PROMPT_VERSION
+        messages = format_candidate_prompt(target_ticker=target_ticker, excerpt=excerpt)
 
     latency = 0.0
     p_tok = 0
@@ -260,7 +273,7 @@ def evaluate_single(
         data = simulate_offline_prediction(example, prompt_type)
         parsed_ok = True
         quotes_ok = True
-        p_tok = len(prompt_text.split()) * 2
+        p_tok = sum(len(m["content"].split()) for m in messages) * 2
         c_tok = 80
         latency = 0.001
     else:
@@ -270,10 +283,7 @@ def evaluate_single(
         t0 = time.perf_counter()
         response = client.chat.completions.create(
             model=model,
-            messages=[
-                {"role": "system", "content": "You are a professional financial equity research analyst specializing in quantitative disclosures and SEC filings."},
-                {"role": "user", "content": prompt_text},
-            ],
+            messages=messages,
             temperature=0.0,
             response_format={"type": "json_object"},
         )
@@ -285,7 +295,7 @@ def evaluate_single(
             p_tok = usage.prompt_tokens
             c_tok = usage.completion_tokens
         else:
-            p_tok = len(prompt_text.split()) * 2
+            p_tok = sum(len(m["content"].split()) for m in messages) * 2
             c_tok = len(raw_content.split()) * 2
 
         budget.add_usage(p_tok, c_tok)
