@@ -750,7 +750,7 @@ EXAMPLES = [
 
 
 def main():
-    out_path = Path("/Users/bernardoguterrres/Desktop/Alpha/AlphaSignal/evaluation/sentiment_eval_dataset.json")
+    out_path = Path(__file__).resolve().parent / "sentiment_eval_dataset.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
     dev = [e for e in EXAMPLES if e["split"] == "dev"]
