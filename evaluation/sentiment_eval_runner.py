@@ -183,7 +183,7 @@ def simulate_offline_prediction(example: Dict[str, Any], prompt_type: str) -> Di
     """
     cat = example["category"]
     exp_dir = example["expected_direction"]
-    excerpt = example["excerpt"]
+    excerpt = example.get("text") or example.get("excerpt", "")
 
     if prompt_type == "baseline":
         # Baseline failure patterns
@@ -250,7 +250,7 @@ def evaluate_single(
 ) -> Dict[str, Any]:
     """Evaluate a single example disclosure with either baseline or candidate prompt."""
     target_ticker = example["target_ticker"]
-    excerpt = example["excerpt"]
+    excerpt = example.get("text") or example.get("excerpt", "")
 
     if prompt_type == "baseline":
         prompt_text = BASELINE_PROMPT_TEMPLATE.format(target_ticker=target_ticker, excerpt=excerpt)
