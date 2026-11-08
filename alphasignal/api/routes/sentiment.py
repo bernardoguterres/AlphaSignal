@@ -85,6 +85,9 @@ def get_sentiment(
             freshness_days=sentiment_extractor.freshness_days,
             last_document_date=agg.last_document_date,
             coverage=coverage,
+            raw_score=agg.raw_score,
+            adverse_floor=agg.adverse_floor,
+            dilution_safeguard_active=agg.dilution_safeguard_active,
         )
         if agg.status == "no_data":
             return SentimentResponse(

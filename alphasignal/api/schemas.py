@@ -163,6 +163,10 @@ class SentimentResponse(BaseModel):
     # What the corpus actually holds for this ticker (never implies
     # complete coverage): per doc_type earliest/latest dates + years absent.
     coverage: dict = {}
+    # --- Anti-dilution safeguard fields (2026-11) ---
+    raw_score: float | None = None
+    adverse_floor: float | None = None
+    dilution_safeguard_active: bool = False
 
 
 class IngestResponse(BaseModel):
