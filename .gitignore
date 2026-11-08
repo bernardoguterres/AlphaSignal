@@ -62,3 +62,4 @@ htmlcov/
 
 # Internal planning/audit notes (not for public repo)
 /docs/alphasignal_prompts.md
+evaluation/*_dev*.json
