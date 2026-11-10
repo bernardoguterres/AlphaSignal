@@ -76,7 +76,7 @@ def main() -> int:
             for k, v in os.environ.items()
             if k not in ("OPENAI_API_KEY", "ALPHASIGNAL_API_KEY")
         }
-        subprocess.run(
+        proc = subprocess.run(
             [
                 sys.executable,
                 "evaluation/sentiment_eval_runner.py",
@@ -86,9 +86,16 @@ def main() -> int:
             ],
             cwd=tmp,
             env=env,
-            check=True,
             capture_output=True,
+            text=True,
         )
+        if proc.returncode != 0:
+            sys.stderr.write(
+                "dry-run simulator failed at the archived commit:\n"
+                + proc.stdout[-2000:]
+                + proc.stderr[-4000:]
+            )
+            return 2
         sim = json.loads(out.read_text())
     s_rows = {
         pt: {r["example_id"]: r for r in rows}
