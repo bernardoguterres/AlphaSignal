@@ -3,10 +3,8 @@
 Kept strictly isolated from the production prompt configuration in
 `alphasignal.generation.sentiment` (which remains at PROMPT_VERSION = 2).
 
-Evaluation benchmark findings:
-- Eliminates 100% of wrong-ticker attributions on competitor/supplier filings (from 3 down to 0).
-- Eliminates 100% of false blocks on long entry (from 3 down to 0).
-- Increases directional Macro-F1 on held-out SEC filing excerpts from 0.4643 to 0.7404.
+Evaluation-only: no measured improvement is claimed here. Run
+`evaluation/sentiment_eval_runner.py` to produce verifiable results.
 """
 
 from __future__ import annotations

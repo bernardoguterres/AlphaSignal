@@ -7,6 +7,12 @@ Executes repeatable offline dry-runs and paid API comparisons between:
 Enforces strict budget limits ($2.00 max spend / 150 requests), records
 token usage, and computes macro-F1, directional accuracy, quote grounding,
 and AlphaLive gate simulation metrics.
+
+IMPORTANT: ``--dry-run`` output comes from ``simulate_offline_prediction()``, which
+hard-codes the baseline's failure patterns and gives the candidate the expected
+answer. Its metrics are true by construction and are NOT model-quality evidence;
+it only verifies that the harness runs. Only ``--paid`` output (with its usage
+records) can support claims about the model.
 """
 
 from __future__ import annotations
@@ -512,7 +518,13 @@ def main():
     summary = {
         "run_timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "mode": "paid" if args.paid else "dry-run",
-        "model": args.model,
+        # Dry-run rows come from simulate_offline_prediction(), which hard-codes the
+        # baseline's failure patterns and gives the candidate the expected answer.
+        # Its metrics are true by construction and say nothing about model quality.
+        "evidence_class": (
+            "provider_output" if args.paid else "simulated_by_construction_not_model_quality"
+        ),
+        "model": args.model if args.paid else None,
         "budget_usage": {
             "total_requests": budget.total_requests,
             "max_requests": budget.max_requests,
@@ -573,10 +585,12 @@ def main():
     print("\n" + "=" * 78)
     print("ALPHASIGNAL SENTIMENT EVALUATION SUMMARY")
     print("=" * 78)
-    print(f"Mode: {'PAID API' if args.paid else 'NO-NETWORK DRY RUN'} | Model: {args.model}")
+    print(f"Mode: {'PAID API' if args.paid else 'NO-NETWORK DRY RUN'} | Model: {args.model if args.paid else 'none (simulated)'}")
+    if not args.paid:
+        print("SIMULATED: the numbers below are constructed by the offline simulator, NOT model quality.")
     print(f"Total Requests: {budget.total_requests} | Spend: ${budget.total_cost_usd:.4f} (Max Budget Cap: ${MAX_BUDGET_USD:.2f})")
     print("-" * 78)
-    print(f"{'Split / Metric':<28} | {'Baseline':<20} | {'Candidate':<20}")
+    print(f"{'Split / Metric' + ('' if args.paid else ' (SIMULATED)'):<28} | {'Baseline':<20} | {'Candidate':<20}")
     print("-" * 78)
     
     b_h = summary["holdout_metrics"]["baseline"]
@@ -591,6 +605,9 @@ def main():
     print(f"Gate Decision Transitions: {len(gate_transitions)} examples changed action")
     for t in gate_transitions[:5]:
         print(f"  * [{t['example_id']}] {t['target_ticker']:<5} ({t['category']}): {t['change']} (base: {t['baseline_score']}, cand: {t['candidate_score']}, exp: {t['expected_gate_action']})")
+    if not args.paid:
+        print("-" * 78)
+        print("SIMULATED RESULTS: harness check only. Not measured model quality.")
     print("=" * 78 + "\n")
 
 

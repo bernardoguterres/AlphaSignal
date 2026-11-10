@@ -127,3 +127,65 @@ def test_recency_dilution_by_second_neutral_filing(tmp_path, monkeypatch):
     assert agg.status == "ok"
     assert agg.documents_used == 3
     assert agg.score == pytest.approx(-0.2071, abs=1e-4)
+
+
+def test_dry_run_output_is_labelled_simulated(tmp_path):
+    """Dry-run metrics are true by construction; the output must say so and name no model."""
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    out = tmp_path / "dry.json"
+    subprocess.run(
+        [sys.executable, str(root / "evaluation" / "sentiment_eval_runner.py"), "--dry-run", "--output", str(out)],
+        check=True, capture_output=True, cwd=root,
+    )
+    summary = json.loads(out.read_text())["summary"]
+    assert summary["mode"] == "dry-run"
+    assert summary["evidence_class"] == "simulated_by_construction_not_model_quality"
+    assert summary["model"] is None
+    assert summary["budget_usage"]["total_requests"] == 0
+
+
+def test_candidate_prompt_not_imported_by_production_code():
+    """v3 stays evaluation-only: no module in the alphasignal package (other than the
+    candidate module itself and tests) may import it."""
+    import ast
+    from pathlib import Path
+
+    pkg = Path(__file__).resolve().parents[1]
+    offenders = []
+    for path in pkg.rglob("*.py"):
+        if path.name == "candidate_prompt.py" or "tests" in path.parts:
+            continue
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.ImportFrom):
+                names = [node.module or ""] + [a.name for a in node.names]
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            if any("candidate_prompt" in n for n in names):
+                offenders.append(str(path.relative_to(pkg)))
+    assert offenders == []
+
+
+def test_archived_paid_claims_are_not_reconstructable():
+    """The archived 'paid' rows are simulator output and the reported F1 does not
+    reproduce (offline; needs the full git history, so skipped in shallow clones)."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    probe = subprocess.run(["git", "cat-file", "-e", "7688fa6^{commit}"], cwd=root, capture_output=True)
+    if probe.returncode != 0:
+        pytest.skip("commit 7688fa6 not available (shallow clone)")
+    res = subprocess.run(
+        [sys.executable, str(root / "evaluation" / "verify_archived_paid_claims.py")],
+        cwd=root, capture_output=True, text=True,
+    )
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "100/100 rows identical" in res.stdout
