@@ -12,6 +12,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # test_archived_paid_claims_are_not_reconstructable reads archived
+          # files from an older commit, so it needs full history (else it skips).
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
