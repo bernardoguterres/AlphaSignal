@@ -81,6 +81,8 @@ def main() -> int:
                 sys.executable,
                 "evaluation/sentiment_eval_runner.py",
                 "--dry-run",
+                "--dataset",
+                str(Path(tmp) / "evaluation" / "sentiment_eval_dataset.json"),
                 "--output",
                 str(out),
             ],
