@@ -41,11 +41,12 @@ data/
 *.db
 *.faiss
 
-# Testing
+# Testing & Evaluation artifacts
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
+evaluation/*_dryrun.json
 
 # OS
 .DS_Store
@@ -61,3 +62,4 @@ htmlcov/
 
 # Internal planning/audit notes (not for public repo)
 /docs/alphasignal_prompts.md
+evaluation/*_dev*.json
