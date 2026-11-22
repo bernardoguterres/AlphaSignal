@@ -210,3 +210,40 @@ def test_health_identifies_the_service(client):
     body = client.get("/health/").json()
     assert body["service"] == "alphasignal"
     assert body["sentiment_contract"] == "2"
+
+
+def test_health_route_runs_in_the_threadpool():
+    """S2 (Nov 2026 audit): as an async def, /health's blocking SQLite reads
+    ran on the event loop; 40 concurrent calls pushed /sentiment to ~7 s,
+    past AlphaLive's 6 s gate timeout. It must stay a plain def."""
+    import inspect
+
+    from alphasignal.api.routes.health import health_check
+
+    assert not inspect.iscoroutinefunction(health_check)
+
+
+def test_verified_vector_count_is_cached_per_database_state(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from alphasignal.api.routes import health
+
+    db = tmp_path / "metadata.db"
+    db.write_text("x")
+    store = MagicMock()
+    store.db_path = str(db)
+    store.get_content_hashes.return_value = {"c0": "h0", "c1": "h1"}
+    vs = SimpleNamespace(
+        content_hashes={"c0": "h0", "c1": "h1"}, generation=1, chunk_ids=["c0", "c1"]
+    )
+
+    health._verified_cache.clear()
+    assert health._cached_verified_vectors(vs, store) == 2
+    assert health._cached_verified_vectors(vs, store) == 2
+    assert store.get_content_hashes.call_count == 1  # second call served from cache
+
+    vs.generation = 2  # index rebuilt -> recompute
+    store.get_content_hashes.return_value = {"c0": "h0", "c1": "CHANGED"}
+    assert health._cached_verified_vectors(vs, store) == 1
+    assert store.get_content_hashes.call_count == 2

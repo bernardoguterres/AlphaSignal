@@ -21,6 +21,34 @@ def _count_verified_vectors(vector_hashes: dict, metadata_store) -> int:
     return sum(1 for cid, h in vector_hashes.items() if h and current.get(cid) == h)
 
 
+_verified_cache: dict = {}
+
+
+def _cached_verified_vectors(vector_store, metadata_store) -> int:
+    """_count_verified_vectors reads every chunk hash (~100-150 ms on the real
+    corpus); recompute only when the database file or FAISS generation
+    changes, like _versions()."""
+    db_path = getattr(metadata_store, "db_path", None)
+    try:
+        mtime = Path(db_path).stat().st_mtime_ns
+    except (TypeError, OSError):
+        # No real database file to key on (in-memory/test stores): don't cache.
+        return _count_verified_vectors(vector_store.content_hashes, metadata_store)
+    key = (
+        str(db_path),
+        mtime,
+        getattr(vector_store, "generation", None),
+        len(getattr(vector_store, "chunk_ids", ()) or ()),
+        id(vector_store),
+    )
+    if _verified_cache.get("key") != key:
+        _verified_cache.update(
+            key=key,
+            value=_count_verified_vectors(vector_store.content_hashes, metadata_store),
+        )
+    return _verified_cache["value"]
+
+
 _version_cache: dict = {}
 
 
@@ -50,8 +78,13 @@ def _versions(metadata_store, vector_store) -> dict:
 
 
 @router.get("/", response_model=HealthResponse)
-async def health_check(request: Request) -> HealthResponse:
-    """Return health status of the AlphaSignal API."""
+def health_check(request: Request) -> HealthResponse:
+    """Return health status of the AlphaSignal API.
+
+    A plain ``def`` on purpose: FastAPI runs it in the threadpool. As an
+    ``async def`` its blocking SQLite reads ran on the event loop, so 40
+    concurrent (unauthenticated) /health calls pushed /sentiment from 48 ms
+    to ~7 s - past AlphaLive's 6 s gate timeout."""
     # Check if we have vector store and metadata store (set on app.state.app_state at startup)
     faiss_loaded = False
     sqlite_connected = False
@@ -73,8 +106,8 @@ async def health_check(request: Request) -> HealthResponse:
                 faiss_loaded = True
                 vs = app_state.retriever.vector_store
                 vectors_total = int(vs.index.ntotal)
-                vectors_verified = _count_verified_vectors(
-                    vs.content_hashes, app_state.retriever.metadata_store
+                vectors_verified = _cached_verified_vectors(
+                    vs, app_state.retriever.metadata_store
                 )
 
             # Check metadata store - sqlite_connected is only set True
