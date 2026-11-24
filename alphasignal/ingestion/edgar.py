@@ -334,76 +334,86 @@ class EDGARIngester:
             logger.error(f"Table extraction failed for {filing_path}: {e}")
             return []
 
+    # Section headings per form. MD&A is also recognised by the sentence some
+    # filers (JPMorganChase) open it with instead of an "Item" heading.
+    _SECTION_PATTERNS = {
+        "10-K": {
+            "item_1": r"item\s+1[\.\s:]+(?:business|description)",
+            "item_1a": r"item\s+1a[\.\s:]+risk\s+factors",
+            "item_7": r"item\s+7[\.\s:]+management"
+            r"|the\s+following\s+is\s+management.s\s+discussion\s+and\s+analysis",
+            "item_7a": r"item\s+7a[\.\s:]+quantitative",
+            "item_8": r"item\s+8[\.\s:]+financial\s+statements",
+        },
+        "10-Q": {
+            "item_1": r"item\s+1[\.\s:]+financial\s+statements",
+            "item_2": r"item\s+2[\.\s:]+management"
+            r"|the\s+following\s+is\s+management.s\s+discussion\s+and\s+analysis",
+            "item_3": r"item\s+3[\.\s:]+quantitative",
+            "item_4": r"item\s+4[\.\s:]+controls",
+        },
+    }
+
     def extract_sections(self, text: str, doc_type: str) -> dict[str, str]:
-        """Extract specific sections from a SEC filing.
+        """Split a 10-K/10-Q into its items without losing text.
 
-        Args:
-            text: Full text of the filing
-            doc_type: Filing type ("10-K" or "10-Q")
+        Parsed filings have no line breaks, so a heading cannot be told from
+        a table-of-contents line or a cross-reference by position alone. The
+        rules (bug S8: JPMorganChase 10-Qs kept 1-3% of their text and the
+        10-K's MD&A was stored as item_8):
 
-        Returns:
-            Dictionary mapping section names to section text
+        - A match preceded by a comma or an opening quote is a cross-reference
+          ("Refer to Part I, Item 1A: Risk Factors"), not a heading.
+        - Consecutive matches of the same item collapse into one run (running
+          page headers); each item keeps the run with the most text before the
+          next run of another item, so table-of-contents lines and
+          one-paragraph cross-reference stubs lose to the real section.
+        - Text before the first section is kept as "front_matter" instead of
+          being dropped.
+
+        Returns {"full_text": text} when fewer than two items are found or the
+        form type is not 10-K/10-Q.
         """
-        sections = {}
-
+        patterns = self._SECTION_PATTERNS.get(doc_type)
+        if patterns is None:
+            return {"full_text": text}
         try:
-            if doc_type == "10-K":
-                # Define section patterns for 10-K
-                section_patterns = {
-                    "item_1": r"item\s+1[\.\s:]+(?:business|description)",
-                    "item_1a": r"item\s+1a[\.\s:]+risk\s+factors",
-                    "item_7": r"item\s+7[\.\s:]+management",
-                    "item_7a": r"item\s+7a[\.\s:]+quantitative",
-                    "item_8": r"item\s+8[\.\s:]+financial\s+statements",
-                }
-
-            elif doc_type == "10-Q":
-                # Define section patterns for 10-Q
-                section_patterns = {
-                    "item_1": r"item\s+1[\.\s:]+financial\s+statements",
-                    "item_2": r"item\s+2[\.\s:]+management",
-                    "item_3": r"item\s+3[\.\s:]+quantitative",
-                    "item_4": r"item\s+4[\.\s:]+controls",
-                }
-
-            else:
-                # Unknown doc type
-                return {"full_text": text}
-
-            # Try to find sections
             text_lower = text.lower()
-            matches = []
+            cands: list[tuple[int, str]] = []
+            for name, pattern in patterns.items():
+                for m in re.finditer(pattern, text_lower):
+                    before = text_lower[max(0, m.start() - 3) : m.start()]
+                    if "," in before or "\u201c" in before or '"' in before:
+                        continue  # cross-reference, not a heading
+                    cands.append((m.start(), name))
+            cands.sort()
 
-            for section_name, pattern in section_patterns.items():
-                match = re.search(pattern, text_lower, re.IGNORECASE)
-                if match:
-                    matches.append((match.start(), section_name))
+            runs: list[tuple[int, str]] = []
+            for pos, name in cands:
+                if not runs or runs[-1][1] != name:
+                    runs.append((pos, name))
 
-            # If we found sections, extract them
-            if len(matches) >= 2:  # Need at least 2 sections to split
-                # Sort by position
-                matches.sort()
+            best: dict[str, tuple[int, int]] = {}  # name -> (length, start)
+            for k, (pos, name) in enumerate(runs):
+                end = runs[k + 1][0] if k + 1 < len(runs) else len(text)
+                if name not in best or end - pos > best[name][0]:
+                    best[name] = (end - pos, pos)
 
-                for i in range(len(matches)):
-                    start_pos = matches[i][0]
-                    section_name = matches[i][1]
-
-                    # End position is start of next section, or end of text
-                    end_pos = matches[i + 1][0] if i + 1 < len(matches) else len(text)
-
-                    # Extract section text
-                    section_text = text[start_pos:end_pos].strip()
-                    sections[section_name] = section_text
-
-            else:
-                # Couldn't find standard sections - use full text
+            if len(best) < 2:
                 logger.info(
                     f"Could not extract standard sections from {doc_type}, using full text"
                 )
-                sections = {"full_text": text}
+                return {"full_text": text}
 
+            starts = sorted((pos, name) for name, (_, pos) in best.items())
+            sections: dict[str, str] = {}
+            front = text[: starts[0][0]].strip()
+            if front:
+                sections["front_matter"] = front
+            for k, (pos, name) in enumerate(starts):
+                end = starts[k + 1][0] if k + 1 < len(starts) else len(text)
+                sections[name] = text[pos:end].strip()
+            return sections
         except Exception as e:
             logger.error(f"Error extracting sections: {e}")
-            sections = {"full_text": text}
-
-        return sections
+            return {"full_text": text}

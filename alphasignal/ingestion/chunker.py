@@ -25,8 +25,10 @@ logger = logging.getLogger(__name__)
 # two-sentence introduction, headings and footnotes), ch6 (2026-10-21,
 # tables whose period headings were shifted are rendered NOT ALIGNED; only
 # in a scratch work copy), ch7 (2026-10-21, basis detection corrected after
-# a fresh review: dashes, "as though", row labels, own lead-in, notes).
-CHUNKER_VERSION = "ch7"
+# a fresh review: dashes, "as though", row labels, own lead-in, notes),
+# ch8 (2026-11-24, filing sections no longer drop text before the first
+# heading and skip cross-references/table-of-contents lines, bug S8).
+CHUNKER_VERSION = "ch8"
 
 
 def chunk_id_for(source_id: str, index: int) -> str:
