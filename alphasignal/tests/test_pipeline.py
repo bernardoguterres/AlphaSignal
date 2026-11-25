@@ -305,3 +305,35 @@ def test_full_ingest_runs_end_to_end_and_returns_counts(pipeline, raw_doc):
     # Data should be immediately queryable after full_ingest completes
     assert pipeline.metadata_store.count() == result.chunks_created
     assert len(pipeline.vector_store) == result.chunks_created
+
+
+def test_ingestion_writers_preserve_metadata_and_vectors(pipeline, raw_doc):
+    from copy import copy
+
+    second = copy(pipeline)
+    path = pipeline.vector_store.index_path
+    second.vector_store = VectorStore(str(path))
+    second.vector_store.load()
+    second.metadata_store = MetadataStore(str(pipeline.metadata_store.db_path))
+
+    first_chunks = pipeline.chunk_documents([raw_doc])
+    assert first_chunks
+    import dataclasses
+
+    second_chunks = [
+        dataclasses.replace(
+            chunk, chunk_id=f"second_{chunk.chunk_id}", source_id="second"
+        )
+        for chunk in first_chunks
+    ]
+    for owner, chunks in ((pipeline, first_chunks), (second, second_chunks)):
+        owner.store_chunks(
+            chunks, {c.chunk_id: np.ones(1536, dtype=np.float32) for c in chunks}
+        )
+
+    reloaded = VectorStore(str(path))
+    reloaded.load()
+    expected = {chunk.chunk_id for chunk in first_chunks + second_chunks}
+    assert set(reloaded.chunk_ids) == expected
+    assert set(reloaded.content_hashes) == expected
+    assert all(second.metadata_store.get_chunk(chunk_id) for chunk_id in expected)
