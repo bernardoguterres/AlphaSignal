@@ -459,3 +459,66 @@ def test_mdna_scoring_prefers_substance_over_procedural_opening(env, opening):
     ]
     assert ext._pick_chunks(chunks) == chunks[1:]
     assert ext._pick_chunks(chunks[:1]) == chunks[:1]
+
+
+def test_shared_cache_keeps_results_from_independent_extractors(env):
+    from alphasignal.generation.sentiment import SentimentExtractor
+
+    _, _, first = env
+    config = {
+        "generation": {"model": first.model},
+        "sentiment": {"cache_path": str(first.cache_path)},
+    }
+    with patch("alphasignal.generation.sentiment.OpenAI"):
+        second = SentimentExtractor(config)
+    aapl = _chunk("apple", 0, 0)
+    msft = _chunk("microsoft", 0, 0, ticker="MSFT")
+    first._score = _scores({aapl.chunk_id: (-0.8, 0.9, True)})
+    second._score = _scores({msft.chunk_id: (0.8, 0.9, True)})
+    first.extract_sentiment(aapl)
+    second.extract_sentiment(msft)
+    first._save_cache()
+    second._save_cache()
+    assert set(json.loads(first.cache_path.read_text())) == {
+        first._key(aapl),
+        second._key(msft),
+    }
+
+
+def test_simultaneous_cold_requests_share_one_model_result(env):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from time import sleep
+
+    _, _, ext = env
+    chunk = _chunk("apple", 0, 0)
+    start = Barrier(2)
+
+    def score(_):
+        sleep(0.2)
+        return SentimentResult(-0.8, 0.9, [], ["matched"], "example"), True
+
+    def request():
+        start.wait(timeout=5)
+        return ext.extract_sentiment(chunk)
+
+    with patch.object(ext, "_score", side_effect=score) as model:
+        with ThreadPoolExecutor(2) as pool:
+            results = [pool.submit(request) for _ in range(2)]
+            assert [result.result(timeout=5).score for result in results] == [
+                -0.8,
+                -0.8,
+            ]
+        assert model.call_count == 1
+
+
+def test_zero_confidence_evidence_cannot_set_the_gate_score(env):
+    client, store, ext = env
+    chunk = _chunk("apple", 0, 0)
+    store.add_chunks([chunk])
+    with patch.object(
+        ext, "_score", side_effect=_scores({chunk.chunk_id: (0.9, 0.0, True)})
+    ):
+        result = client.get("/sentiment/AAPL").json()
+    assert result["status"] == "degraded"
+    assert result["latest_score"] is None

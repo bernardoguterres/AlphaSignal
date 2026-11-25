@@ -30,11 +30,12 @@ limit, no document identity, an in-memory-only cache and sequential calls):
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -106,6 +107,8 @@ Quote substantive evidence supporting the rating. Use an empty list for either s
         self.cache_path = Path(s.get("cache_path", "data/sentiment_cache.json"))
         self._lock = threading.Lock()
         self._cache: dict[str, dict] = self._load_cache()
+        self._pending_cache: dict[str, dict] = {}
+        self._inflight: dict[str, Future[SentimentResult]] = {}
         logger.info(
             f"SentimentExtractor: freshness={self.freshness_days}d "
             f"half_life={self.half_life_days}d cache={self.cache_path} "
@@ -118,7 +121,10 @@ Quote substantive evidence supporting the rating. Use an empty list for either s
 
     def _load_cache(self) -> dict:
         try:
-            return json.loads(self.cache_path.read_text())
+            data = json.loads(self.cache_path.read_text())
+            if not isinstance(data, dict):
+                raise ValueError("expected a cache object")
+            return data
         except FileNotFoundError:
             return {}
         except Exception as e:
@@ -128,10 +134,20 @@ Quote substantive evidence supporting the rating. Use an empty list for either s
     def _save_cache(self) -> None:
         try:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.cache_path.with_suffix(".tmp")
+            lock_path = self.cache_path.with_name(self.cache_path.name + ".lock")
+            tmp = self.cache_path.with_name(self.cache_path.name + ".tmp")
             with self._lock:
-                tmp.write_text(json.dumps(self._cache))
-                tmp.replace(self.cache_path)
+                if not self._pending_cache and self.cache_path.exists():
+                    return
+                with lock_path.open("a") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    merged = self._load_cache()
+                    for key, result in self._pending_cache.items():
+                        merged.setdefault(key, result)
+                    tmp.write_text(json.dumps(merged))
+                    tmp.replace(self.cache_path)
+                self._cache = merged
+                self._pending_cache.clear()
         except Exception as e:
             logger.warning(f"Could not persist sentiment cache: {e}")
 
@@ -147,18 +163,31 @@ Quote substantive evidence supporting the rating. Use an empty list for either s
         key = self._key(chunk)
         with self._lock:
             hit = self._cache.get(key)
-        if hit is not None:
-            return SentimentResult(**hit)
-        result, cacheable = self._score(chunk)
-        # Cache every answer the model actually gave, including ones whose
-        # quotes failed verification (kept with reliable=False); otherwise a
-        # warm call re-scores them, pays cold latency and, since outputs
-        # vary, can flip between "ok" and "degraded". Provider/parse
-        # failures are never cached, so they are retried.
-        if cacheable:
+            if hit is not None:
+                return SentimentResult(**hit)
+            future = self._inflight.get(key)
+            owner = future is None
+            if owner:
+                future = self._inflight[key] = Future()
+
+        if not owner:
+            return future.result()
+
+        try:
+            result, cacheable = self._score(chunk)
+            # Share the outcome with current waiters. Provider and parse
+            # failures remain retryable by later requests.
             with self._lock:
-                self._cache[key] = result.__dict__.copy()
-        return result
+                if cacheable:
+                    self._cache[key] = self._pending_cache[key] = result.__dict__.copy()
+                future.set_result(result)
+            return result
+        except BaseException as exc:
+            future.set_exception(exc)
+            raise
+        finally:
+            with self._lock:
+                self._inflight.pop(key)
 
     def _score(self, chunk: Chunk) -> tuple[SentimentResult, bool]:
         """Return (result, cacheable); cacheable is False for failures."""
@@ -304,16 +333,12 @@ Quote substantive evidence supporting the rating. Use an empty list for either s
         reliable_chunks = 0
         for d in fresh:
             rs = [(c, results[c.chunk_id]) for c in picked[d]]
-            good = [(c, r) for c, r in rs if r.reliable]
+            good = [(c, r) for c, r in rs if r.reliable and r.confidence > 0]
             reliable_chunks += len(good)
             if not good:
                 continue
             wsum = sum(r.confidence for _, r in good)
-            dscore = (
-                sum(r.score * r.confidence for _, r in good) / wsum
-                if wsum > 0
-                else sum(r.score for _, r in good) / len(good)
-            )
+            dscore = sum(r.score * r.confidence for _, r in good) / wsum
             dconf = sum(r.confidence for _, r in good) / len(good)
             age = (as_of - doc_dates[d]).days
             w = dconf * 0.5 ** (age / self.half_life_days)
@@ -349,7 +374,7 @@ Quote substantive evidence supporting the rating. Use an empty list for either s
             )
         if den > 0:
             score = num / den
-        else:  # all reliable chunks reported zero confidence - plain mean
+        else:  # recency weights can underflow for very short half-lives
             score = sum(s.score for s in signals) / len(signals)
         return SentimentAggregate(
             status="ok" if reliable_chunks == total else "degraded",
