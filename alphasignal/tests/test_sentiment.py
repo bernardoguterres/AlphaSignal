@@ -69,7 +69,7 @@ def test_sentiment_extractor_returns_valid_score(test_config, test_chunk):
                 "confidence": 0.85,
                 "key_positive": [
                     "strong revenue growth",
-                    "exceptional sales",
+                    "exceptional iPhone sales",
                     "robust demand",
                 ],
                 "key_negative": [],
@@ -212,12 +212,8 @@ def test_sentiment_extractor_infinity_score_does_not_clamp_silently(
         assert result.summary == "Invalid score from provider"
 
 
-def test_sentiment_extractor_ordinary_out_of_range_score_still_clamps(
-    test_config, test_chunk
-):
-    """Sanity check the fix didn't break legitimate clamping - an ordinary
-    (finite) out-of-range value like 1.5 must still clamp to 1.0, not be
-    treated as invalid."""
+def test_sentiment_extractor_out_of_range_score_is_unreliable(test_config, test_chunk):
+    """An out-of-range finite score cannot become an actionable prediction."""
     with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -238,13 +234,18 @@ def test_sentiment_extractor_ordinary_out_of_range_score_still_clamps(
         extractor = SentimentExtractor(test_config)
         result = extractor.extract_sentiment(test_chunk)
 
-        assert result.score == 1.0
-        assert result.summary != "Invalid score from provider"
+        assert result.score == 0.0
+        assert result.reliable is False
+        assert result.summary == "Invalid score from provider"
 
 
 def test_sentiment_extractor_genuine_neutral_is_reliable(test_config, test_chunk):
-    """A genuine neutral prediction from the provider (score=0.0 returned
-    as real JSON, not a fallback) must be marked reliable."""
+    """A zero score supported by balanced evidence is reliable."""
+    from dataclasses import replace
+
+    test_chunk = replace(
+        test_chunk, text="Sales rose and margins fell.", content_hash=""
+    )
     with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -252,8 +253,8 @@ def test_sentiment_extractor_genuine_neutral_is_reliable(test_config, test_chunk
             {
                 "score": 0.0,
                 "confidence": 0.55,
-                "key_positive": [],
-                "key_negative": [],
+                "key_positive": ["Sales rose"],
+                "key_negative": ["margins fell"],
                 "summary": "Balanced, no clear directional sentiment.",
             }
         )
@@ -418,9 +419,9 @@ def test_sentiment_positive_keywords_extracted(test_config, test_chunk):
                 "score": 0.85,
                 "confidence": 0.9,
                 "key_positive": [
-                    "exceptional growth",
-                    "strong performance",
-                    "record revenue",
+                    "exceptional iPhone sales",
+                    "strong revenue growth",
+                    "robust demand",
                 ],
                 "key_negative": [],
                 "summary": "Highly positive financial results.",
@@ -435,14 +436,14 @@ def test_sentiment_positive_keywords_extracted(test_config, test_chunk):
         result = extractor.extract_sentiment(test_chunk)
 
         # Should contain specific positive keywords
-        assert "exceptional growth" in result.key_positive
-        assert "strong performance" in result.key_positive
-        assert "record revenue" in result.key_positive
+        assert "exceptional iPhone sales" in result.key_positive
+        assert "strong revenue growth" in result.key_positive
+        assert "robust demand" in result.key_positive
         assert len(result.key_positive) <= 3  # Max 3 as per spec
 
 
 def test_sentiment_cache_keyed_by_content_not_time(test_config, test_chunk, tmp_path):
-    """The score cache is persistent and keyed by (content hash, model,
+    """The score cache is persistent and keyed by (content hash, ticker, model,
     prompt version): unchanged text is never re-scored; changed text under
     the same chunk_id is. (Replaces the in-memory 24h TTL cache.)"""
     with patch("alphasignal.generation.sentiment.OpenAI") as MockOpenAI:
