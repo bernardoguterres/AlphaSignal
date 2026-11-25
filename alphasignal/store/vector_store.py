@@ -469,14 +469,31 @@ class VectorStore:
         self.index = new_index
         self.chunk_ids = ids
 
+    def _publish_mutation(self) -> bool:
+        generation = self.generation
+        try:
+            self.save()
+        finally:
+            published = self.generation != generation
+            if not published:
+                # Retry must not treat hashes from an unpublished mutation as
+                # hits, whether save logs a failure or raises an exception.
+                if generation < 0:
+                    self._reset_fresh()
+                elif not self._try_activate_generation(
+                    generation, self._loaded_manifest
+                ):
+                    self.load()
+        return published
+
     @_serialized
     def add(
         self,
         embeddings: np.ndarray,
         chunk_ids: list[str],
         content_hashes: dict[str, str] | None = None,
-    ):
-        """Add (or, if content changed, replace) embeddings in the index.
+    ) -> bool:
+        """Add or replace embeddings. Return False if publication failed.
 
         Args:
             embeddings: Array of embeddings with shape (n, dim)
@@ -512,7 +529,7 @@ class VectorStore:
             raise RuntimeError("Index not loaded. Call load() first.")
 
         if len(embeddings) == 0:
-            return
+            return True
 
         self._refresh_writer_snapshot()
 
@@ -571,7 +588,7 @@ class VectorStore:
             is_new or is_changed for is_new, is_changed in zip(new_mask, changed_mask)
         ]
         if not any(to_add_mask):
-            return
+            return True
 
         add_embeddings = embeddings[np.array(to_add_mask, dtype=bool)]
         add_chunk_ids = [cid for cid, keep in zip(chunk_ids, to_add_mask) if keep]
@@ -613,10 +630,11 @@ class VectorStore:
             if new_hash:
                 self.content_hashes[cid] = new_hash
 
-        # Save after adding
-        self.save()
+        if not self._publish_mutation():
+            return False
 
         logger.info(f"Added/replaced {len(add_chunk_ids)} vectors in index")
+        return True
 
     @_serialized
     def remove(self, chunk_ids: list[str]) -> int:
@@ -657,7 +675,8 @@ class VectorStore:
         self.content_hashes = {
             cid: h for cid, h in self.content_hashes.items() if cid in surviving_set
         }
-        self.save()
+        if not self._publish_mutation():
+            raise RuntimeError("Could not publish vector removals")
 
         logger.info(f"Removed {n_removed} vector(s) from index")
         return n_removed

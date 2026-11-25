@@ -353,9 +353,6 @@ class IngestionPipeline:
             return
 
         if chunks:
-            # Store metadata
-            self.metadata_store.add_chunks(chunks)
-
             # Prepare embeddings for vector store
             chunk_ids = [chunk.chunk_id for chunk in chunks]
             embeddings_array = np.array([embeddings[cid] for cid in chunk_ids])
@@ -365,14 +362,16 @@ class IngestionPipeline:
             # an unchanged re-ingestion (skip) from a content change under
             # the same chunk_id (replace the stale vector) apart from a
             # brand new chunk_id.
-            self.vector_store.add(embeddings_array, chunk_ids, content_hashes)
+            self.metadata_store.add_chunks(chunks)
+            if not self.vector_store.add(embeddings_array, chunk_ids, content_hashes):
+                raise RuntimeError("Could not publish vectors; retry ingestion")
 
         # Remove orphans only after the new data (if any) is safely stored,
         # so a failure here never deletes current data before its
         # replacement landed.
         if orphans:
-            self.metadata_store.delete_chunks(list(orphans))
             self.vector_store.remove(list(orphans))
+            self.metadata_store.delete_chunks(list(orphans))
             logger.info(
                 f"Removed {len(orphans)} orphaned chunk(s) no longer produced "
                 "by this source document"
