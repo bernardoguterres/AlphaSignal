@@ -474,6 +474,10 @@ class HybridRetriever:
         # Apply filters
         filtered_results = []
         for idx, score in enumerate(scores):
+            # A zero BM25 score carries no lexical ranking signal. Leaving
+            # it in the result set can give it full weight when all tie.
+            if score == 0:
+                continue
             chunk_id = self.bm25_chunk_ids[idx]
             chunk = self.bm25_chunks.get(chunk_id)
 
@@ -582,6 +586,7 @@ class HybridRetriever:
         Returns:
             List of RetrievedChunk objects sorted by hybrid score
         """
+        ticker = ticker.strip().upper() if ticker else None
         if top_k is None:
             top_k = self.config.get("retrieval", {}).get("rerank_candidates", 20)
 
