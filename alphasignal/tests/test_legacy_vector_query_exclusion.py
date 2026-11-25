@@ -318,9 +318,9 @@ class TestProductionPathsSupplyContentHash:
 
         from alphasignal.ingestion import pipeline as pipeline_module
 
-        source = inspect.getsource(pipeline_module.IngestionPipeline.store_chunks)
+        source = inspect.getsource(pipeline_module.IngestionPipeline)
         call_sites = re.findall(r"vector_store\.add\(([^)]*)\)", source)
-        assert call_sites, "expected exactly one vector_store.add() call site"
+        assert len(call_sites) == 1, "expected exactly one vector_store.add() call site"
         for call_args in call_sites:
             assert (
                 "content_hashes" in call_args
