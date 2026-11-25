@@ -74,11 +74,12 @@ def main() -> int:
         batch = chunks[i : i + args.batch]
         emb = embedder.embed_chunks(batch)
         ids = [c.chunk_id for c in batch]
-        vs.add(
+        if not vs.add(
             np.array([emb[c] for c in ids], dtype=np.float32),
             ids,
             {c.chunk_id: c.content_hash for c in batch},
-        )
+        ):
+            raise RuntimeError("Could not publish vectors during index rebuild")
         print(
             f"embedded {min(i + args.batch, len(chunks))}/{len(chunks)} "
             f"({time.time() - t0:.0f}s)",
