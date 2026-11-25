@@ -471,17 +471,20 @@ class VectorStore:
 
     def _publish_mutation(self) -> bool:
         generation = self.generation
-        self.save()
-        if self.generation != generation:
-            return True
-
-        # Keep the writer's in-memory view aligned with the active files.
-        # Otherwise retrying the same batch treats unpublished hashes as hits.
-        if generation < 0:
-            self._reset_fresh()
-        elif not self._try_activate_generation(generation, self._loaded_manifest):
-            self.load()
-        return False
+        try:
+            self.save()
+        finally:
+            published = self.generation != generation
+            if not published:
+                # Retry must not treat hashes from an unpublished mutation as
+                # hits, whether save logs a failure or raises an exception.
+                if generation < 0:
+                    self._reset_fresh()
+                elif not self._try_activate_generation(
+                    generation, self._loaded_manifest
+                ):
+                    self.load()
+        return published
 
     @_serialized
     def add(

@@ -380,3 +380,17 @@ def test_failed_orphan_cleanup_keeps_metadata_for_retry(pipeline, raw_doc):
     reloaded.load()
     assert pipeline.metadata_store.count() == 0
     assert not reloaded.chunk_ids
+
+
+def test_publication_exception_does_not_poison_retry(pipeline, raw_doc):
+    chunks = pipeline.chunk_documents([raw_doc])
+    assert chunks
+    embeddings = {chunk.chunk_id: np.ones(1536, dtype=np.float32) for chunk in chunks}
+    with patch.object(
+        pipeline.vector_store, "save", side_effect=OSError("manifest unavailable")
+    ):
+        with pytest.raises(OSError, match="manifest unavailable"):
+            pipeline.store_chunks(chunks, embeddings)
+    assert not pipeline.vector_store.chunk_ids
+    pipeline.store_chunks(chunks, embeddings)
+    assert set(pipeline.vector_store.chunk_ids) == set(embeddings)
