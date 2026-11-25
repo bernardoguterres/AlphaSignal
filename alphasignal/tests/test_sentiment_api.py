@@ -319,3 +319,143 @@ def test_closing_fence_variants_are_defused():
         assert "</document>" not in _CLOSE_DOCUMENT.sub("</ document>", tag).lower()
     for tag in ("</excerpt>", "</EXCERPT >"):
         assert "</excerpt>" not in _CLOSE_EXCERPT.sub("</ excerpt>", tag).lower()
+
+
+def _completion(payload):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))]
+    )
+
+
+def test_same_excerpt_is_scored_and_cached_per_ticker(env):
+    _, _, ext = env
+    excerpt = "Microsoft sales grew. Apple sales fell."
+    msft = _chunk("msft", 0, 0, text=excerpt, ticker="MSFT")
+    aapl = _chunk("aapl", 0, 0, text=excerpt, ticker="AAPL")
+
+    def respond(*, messages, **kwargs):
+        instructions = messages[1]["content"].split("<excerpt>", 1)[0]
+        if "MSFT" in instructions:
+            return _completion(
+                {
+                    "score": 0.8,
+                    "confidence": 0.9,
+                    "key_positive": ["Microsoft sales grew"],
+                    "key_negative": [],
+                }
+            )
+        assert "AAPL" in instructions
+        return _completion(
+            {
+                "score": -0.8,
+                "confidence": 0.9,
+                "key_positive": [],
+                "key_negative": ["Apple sales fell"],
+            }
+        )
+
+    with patch.object(
+        ext.client.chat.completions, "create", side_effect=respond
+    ) as create:
+        assert ext.extract_sentiment(msft).score == 0.8
+        assert ext.extract_sentiment(aapl).score == -0.8
+        assert ext.extract_sentiment(aapl).score == -0.8
+        assert ext.extract_sentiment(msft).score == 0.8
+        assert create.call_count == 2
+
+
+@pytest.mark.parametrize("quotes", [[], ["  "], "Apple", ["Apple", 42]])
+def test_unusable_quotes_do_not_produce_an_actionable_score(env, quotes):
+    _, store, ext = env
+    store.add_chunks([_chunk("apple", 0, 0, text="Apple reported higher revenue.")])
+    payload = {
+        "score": 0.8,
+        "confidence": 0.9,
+        "key_positive": quotes,
+        "key_negative": [],
+    }
+    with patch.object(
+        ext.client.chat.completions, "create", return_value=_completion(payload)
+    ):
+        response = env[0].get("/sentiment/AAPL")
+    assert response.status_code == 200
+    assert response.json()["status"] == "degraded"
+    assert response.json()["latest_score"] is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        None,
+        {
+            "score": 1.2,
+            "confidence": 0.9,
+            "key_positive": ["Apple"],
+            "key_negative": [],
+        },
+        {
+            "score": 0.8,
+            "confidence": 1.2,
+            "key_positive": ["Apple"],
+            "key_negative": [],
+        },
+    ],
+)
+def test_invalid_model_payload_degrades_without_caching(env, payload):
+    _, _, ext = env
+    chunk = _chunk("apple", 0, 0, text="Apple reported higher revenue.")
+    with patch.object(
+        ext.client.chat.completions, "create", return_value=_completion(payload)
+    ):
+        result, cacheable = ext._score(chunk)
+    assert not result.reliable
+    assert not cacheable
+
+
+def test_cache_publish_holds_the_writer_lock(env, monkeypatch):
+    _, _, ext = env
+    path_type = type(ext.cache_path)
+    replace = path_type.replace
+    locked_during_publish = []
+
+    def checked_replace(path, target):
+        locked_during_publish.append(ext._lock.locked())
+        return replace(path, target)
+
+    monkeypatch.setattr(path_type, "replace", checked_replace)
+    ext._save_cache()
+    assert locked_during_publish == [True]
+    assert json.loads(ext.cache_path.read_text()) == {}
+
+
+@pytest.mark.parametrize(
+    "opening",
+    [
+        "The following discussion should be read in conjunction with the financial statements.",
+        "Management’s discussion and analysis of the financial condition and results of operations. "
+        "This discussion covers the results for the quarter that just ended and describes the basis of presentation. "
+        "The quarterly report should be read together with the preceding annual report.",
+    ],
+)
+def test_mdna_scoring_prefers_substance_over_procedural_opening(env, opening):
+    _, _, ext = env
+    chunks = [
+        _chunk(
+            "filing",
+            0,
+            0,
+            text=opening,
+        ),
+        _chunk("filing", 1, 0, text="Revenue fell because customers reduced orders."),
+        _chunk(
+            "filing",
+            2,
+            0,
+            text="Operating expenses increased as a result of higher costs.",
+        ),
+    ]
+    assert ext._pick_chunks(chunks) == chunks[1:]
+    assert ext._pick_chunks(chunks[:1]) == chunks[:1]
