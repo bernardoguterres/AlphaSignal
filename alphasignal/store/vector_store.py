@@ -1,8 +1,12 @@
 """FAISS vector store module."""
 
+import fcntl
 import json
 import logging
 import re
+from contextlib import contextmanager
+from functools import wraps
+from threading import RLock
 from pathlib import Path
 
 import faiss
@@ -14,6 +18,15 @@ _MANIFEST_NAME = "manifest.json"
 _LEGACY_INDEX_NAME = "index.faiss"
 _LEGACY_IDS_NAME = "chunk_ids.json"
 _GENERATION_RE = re.compile(r"^(?:index|chunk_ids)\.g(\d+)\.(?:faiss|json)$")
+
+
+def _serialized(method):
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self.writer():
+            return method(self, *args, **kwargs)
+
+    return locked
 
 
 class VectorStore:
@@ -52,6 +65,28 @@ class VectorStore:
         # -1 = nothing persisted yet (fresh store); save() always writes
         # generation (self.generation + 1).
         self.generation: int = -1
+        self._loaded_manifest: dict | None = None
+        self._writer_lock = RLock()
+        self._writing = False
+
+    @contextmanager
+    def writer(self):
+        """Serialize mutations and generation cleanup across threads and processes."""
+        with self._writer_lock:
+            if self._writing:
+                yield
+                return
+            with (self.index_path / ".writer.lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                self._writing = True
+                try:
+                    yield
+                finally:
+                    self._writing = False
+
+    def _refresh_writer_snapshot(self):
+        if self._read_manifest(strict=True) != self._loaded_manifest:
+            self.load()
 
     def _create_index(self) -> faiss.Index:
         """Create a fresh FAISS index.
@@ -163,19 +198,19 @@ class VectorStore:
         self.generation = generation
         return True
 
-    def _read_manifest(self) -> dict | None:
+    def _read_manifest(self, *, strict: bool = False) -> dict | None:
         path = self._manifest_path()
-        if not path.exists():
-            return None
         try:
-            with open(path, "r") as f:
-                manifest = json.load(f)
+            manifest = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(manifest, dict) or "generation" not in manifest:
-                logger.error(f"Malformed FAISS manifest at {path} - ignoring.")
-                return None
+                raise ValueError(f"Malformed FAISS manifest at {path}")
             return manifest
-        except Exception as e:
-            logger.error(f"Failed to read FAISS manifest {path}: {e}")
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as exc:
+            if strict:
+                raise
+            logger.error("Failed to read FAISS manifest %s: %s", path, exc)
             return None
 
     def _cleanup_old_generations(self, keep: set):
@@ -255,6 +290,7 @@ class VectorStore:
         self._reset_fresh()
         return False
 
+    @_serialized
     def load(self):
         """Load index from disk, or create fresh if none exists.
 
@@ -262,7 +298,7 @@ class VectorStore:
         generation, and never guesses a legacy or corrupt pair is
         compatible - see class docstring.
         """
-        manifest = self._read_manifest()
+        manifest = self._loaded_manifest = self._read_manifest()
         if manifest is not None:
             generation = manifest.get("generation")
             previous = manifest.get("previous_generation")
@@ -304,6 +340,7 @@ class VectorStore:
         logger.info("No existing index found. Creating fresh index.")
         self._reset_fresh()
 
+    @_serialized
     def save(self):
         """Persist the index as a new generation, then atomically activate it.
 
@@ -319,6 +356,11 @@ class VectorStore:
         if self.index is None:
             logger.warning("No index to save")
             return
+
+        if self._read_manifest(strict=True) != self._loaded_manifest:
+            raise RuntimeError(
+                "Vector store advanced since it was loaded; reload before saving"
+            )
 
         try:
             new_generation = self.generation + 1
@@ -373,6 +415,7 @@ class VectorStore:
 
             activated_generation = self.generation
             self.generation = new_generation
+            self._loaded_manifest = new_manifest
             self._cleanup_old_generations({new_generation, activated_generation})
 
             logger.info(
@@ -426,6 +469,7 @@ class VectorStore:
         self.index = new_index
         self.chunk_ids = ids
 
+    @_serialized
     def add(
         self,
         embeddings: np.ndarray,
@@ -469,6 +513,8 @@ class VectorStore:
 
         if len(embeddings) == 0:
             return
+
+        self._refresh_writer_snapshot()
 
         if len(embeddings) != len(chunk_ids):
             raise ValueError("Number of embeddings must match number of chunk_ids")
@@ -572,6 +618,7 @@ class VectorStore:
 
         logger.info(f"Added/replaced {len(add_chunk_ids)} vectors in index")
 
+    @_serialized
     def remove(self, chunk_ids: list[str]) -> int:
         """Remove vectors by chunk_id, rebuilding the index without them.
 
@@ -590,6 +637,7 @@ class VectorStore:
         if self.index is None:
             raise RuntimeError("Index not loaded. Call load() first.")
 
+        self._refresh_writer_snapshot()
         remove_set = set(chunk_ids)
         if not remove_set.intersection(self.chunk_ids):
             return 0

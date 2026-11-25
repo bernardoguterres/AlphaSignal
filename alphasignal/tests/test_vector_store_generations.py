@@ -338,3 +338,19 @@ class TestGenerationCleanup:
         assert len(store) == 0, "mismatched legacy pair must be rejected, not guessed"
         # Legacy files left in place for inspection since migration failed.
         assert (index_path / "index.faiss").exists()
+
+
+def test_long_lived_writers_preserve_each_others_vectors(tmp_path):
+    first = VectorStore(str(tmp_path), dim=DIM)
+    second = VectorStore(str(tmp_path), dim=DIM)
+    first.load()
+    second.load()
+
+    first.add(np.array([_vec(0)]), ["first"])
+    second.add(np.array([_vec(1)]), ["second"])
+    first.remove(["first"])
+
+    reader = VectorStore(str(tmp_path), dim=DIM)
+    reader.load()
+    assert reader.chunk_ids == ["second"]
+    assert reader.generation == 2
