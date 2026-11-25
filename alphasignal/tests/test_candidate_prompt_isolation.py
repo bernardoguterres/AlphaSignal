@@ -40,8 +40,8 @@ def _make_chunk(doc_id: str, ticker: str, days_ago: int, chunk_index: int = 0) -
 
 
 def test_production_prompt_version_isolation():
-    """Ensure production SentimentExtractor configuration remains at v2."""
-    assert PROMPT_VERSION == 2
+    """Verify the production prompt revision is deliberate and independently tracked."""
+    assert PROMPT_VERSION == 3
     assert CANDIDATE_PROMPT_VERSION == 3
     assert "TARGET TICKER" in CANDIDATE_SYSTEM_PROMPT
     assert "{target_ticker}" in CANDIDATE_USER_PROMPT_TEMPLATE
@@ -80,7 +80,9 @@ def test_recency_time_shift_invariance(tmp_path, monkeypatch):
     ]
     mock_scores = {
         "doc0_0000": SentimentResult(0.0, 0.98, [], [], "neutral", reliable=True),
-        "doc5_0000": SentimentResult(-0.88, 0.99, [], ["cut"], "negative", reliable=True),
+        "doc5_0000": SentimentResult(
+            -0.88, 0.99, [], ["cut"], "negative", reliable=True
+        ),
     }
     ext.extract_sentiment = lambda c: mock_scores[c.chunk_id]
 
@@ -118,8 +120,12 @@ def test_recency_dilution_by_second_neutral_filing(tmp_path, monkeypatch):
     ]
     mock_scores = {
         "doc0_0000": SentimentResult(0.0, 0.98, [], [], "neutral", reliable=True),
-        "doc_extra_neutral_0000": SentimentResult(0.0, 0.98, [], [], "neutral", reliable=True),
-        "doc5_0000": SentimentResult(-0.88, 0.99, [], ["cut"], "negative", reliable=True),
+        "doc_extra_neutral_0000": SentimentResult(
+            0.0, 0.98, [], [], "neutral", reliable=True
+        ),
+        "doc5_0000": SentimentResult(
+            -0.88, 0.99, [], ["cut"], "negative", reliable=True
+        ),
     }
     ext.extract_sentiment = lambda c: mock_scores[c.chunk_id]
 
@@ -139,8 +145,16 @@ def test_dry_run_output_is_labelled_simulated(tmp_path):
     root = Path(__file__).resolve().parents[2]
     out = tmp_path / "dry.json"
     subprocess.run(
-        [sys.executable, str(root / "evaluation" / "sentiment_eval_runner.py"), "--dry-run", "--output", str(out)],
-        check=True, capture_output=True, cwd=root,
+        [
+            sys.executable,
+            str(root / "evaluation" / "sentiment_eval_runner.py"),
+            "--dry-run",
+            "--output",
+            str(out),
+        ],
+        check=True,
+        capture_output=True,
+        cwd=root,
     )
     summary = json.loads(out.read_text())["summary"]
     assert summary["mode"] == "dry-run"
@@ -180,12 +194,16 @@ def test_archived_paid_claims_are_not_reconstructable():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    probe = subprocess.run(["git", "cat-file", "-e", "7688fa6^{commit}"], cwd=root, capture_output=True)
+    probe = subprocess.run(
+        ["git", "cat-file", "-e", "7688fa6^{commit}"], cwd=root, capture_output=True
+    )
     if probe.returncode != 0:
         pytest.skip("commit 7688fa6 not available (shallow clone)")
     res = subprocess.run(
         [sys.executable, str(root / "evaluation" / "verify_archived_paid_claims.py")],
-        cwd=root, capture_output=True, text=True,
+        cwd=root,
+        capture_output=True,
+        text=True,
     )
     assert res.returncode == 0, res.stdout + res.stderr
     assert "100/100 rows identical" in res.stdout
