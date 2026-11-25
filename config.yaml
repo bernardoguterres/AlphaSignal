@@ -71,7 +71,7 @@ sentiment:
   max_documents: 8            # most recent eligible documents aggregated
   max_chunks_per_document: 2  # MD&A first for filings
   parallelism: 8              # concurrent model calls on a cold cache
-  cache_path: "data/sentiment_cache.json"  # per (content hash, model, prompt version)
+  cache_path: "data/sentiment_cache.json"  # per (content hash, ticker, model, prompt version)
 
 storage:
   faiss_index_path: "data/faiss_index"
