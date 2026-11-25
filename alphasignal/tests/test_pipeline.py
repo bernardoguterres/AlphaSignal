@@ -337,3 +337,60 @@ def test_ingestion_writers_preserve_metadata_and_vectors(pipeline, raw_doc):
     assert set(reloaded.chunk_ids) == expected
     assert set(reloaded.content_hashes) == expected
     assert all(second.metadata_store.get_chunk(chunk_id) for chunk_id in expected)
+
+
+def test_failed_vector_publish_reports_error_and_retries_in_same_worker(
+    pipeline, raw_doc
+):
+    chunks = pipeline.chunk_documents([raw_doc])
+    assert chunks
+    embeddings = {chunk.chunk_id: np.ones(1536, dtype=np.float32) for chunk in chunks}
+    with patch(
+        "alphasignal.store.vector_store.faiss.write_index",
+        side_effect=OSError("disk full"),
+    ):
+        with pytest.raises(RuntimeError, match="publish"):
+            pipeline.store_chunks(chunks, embeddings)
+    assert pipeline.metadata_store.count() == len(chunks)
+    assert not pipeline.vector_store.chunk_ids
+    pipeline.store_chunks(chunks, embeddings)
+    reloaded = VectorStore(str(pipeline.vector_store.index_path))
+    reloaded.load()
+    assert set(reloaded.chunk_ids) == set(embeddings)
+
+
+def test_failed_orphan_cleanup_keeps_metadata_for_retry(pipeline, raw_doc):
+    chunks = pipeline.chunk_documents([raw_doc])
+    assert chunks and chunks[0].source_id
+    embeddings = {chunk.chunk_id: np.ones(1536, dtype=np.float32) for chunk in chunks}
+    pipeline.store_chunks(chunks, embeddings)
+    sources = {chunks[0].source_id}
+
+    with patch(
+        "alphasignal.store.vector_store.faiss.write_index",
+        side_effect=OSError("disk full"),
+    ):
+        with pytest.raises(RuntimeError, match="publish"):
+            pipeline.store_chunks([], {}, source_prefixes=sources)
+    assert pipeline.metadata_store.count() == len(chunks)
+    assert set(pipeline.vector_store.chunk_ids) == set(embeddings)
+
+    pipeline.store_chunks([], {}, source_prefixes=sources)
+    reloaded = VectorStore(str(pipeline.vector_store.index_path))
+    reloaded.load()
+    assert pipeline.metadata_store.count() == 0
+    assert not reloaded.chunk_ids
+
+
+def test_publication_exception_does_not_poison_retry(pipeline, raw_doc):
+    chunks = pipeline.chunk_documents([raw_doc])
+    assert chunks
+    embeddings = {chunk.chunk_id: np.ones(1536, dtype=np.float32) for chunk in chunks}
+    with patch.object(
+        pipeline.vector_store, "save", side_effect=OSError("manifest unavailable")
+    ):
+        with pytest.raises(OSError, match="manifest unavailable"):
+            pipeline.store_chunks(chunks, embeddings)
+    assert not pipeline.vector_store.chunk_ids
+    pipeline.store_chunks(chunks, embeddings)
+    assert set(pipeline.vector_store.chunk_ids) == set(embeddings)
