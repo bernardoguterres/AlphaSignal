@@ -314,6 +314,12 @@ class IngestionPipeline:
                 explicitly. Without this, a source going fully empty would
                 leave 100% of its previous chunks as permanent orphans.
         """
+        # Serialize ownership checks and mutations across the SQLite and
+        # vector write paths. Model and network work happens before this lock.
+        with self.vector_store.writer():
+            self._store_chunks(chunks, embeddings, source_prefixes)
+
+    def _store_chunks(self, chunks, embeddings, source_prefixes):
         new_chunk_ids = {chunk.chunk_id for chunk in chunks}
 
         # Orphan detection: for every source document considered this run,
