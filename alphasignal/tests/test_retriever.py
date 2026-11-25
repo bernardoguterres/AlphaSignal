@@ -295,3 +295,18 @@ def test_evaluator_with_golden_set(tmp_path, hybrid_retriever):
     assert 0.0 <= results.hit_at_1 <= 1.0
     assert 0.0 <= results.hit_at_5 <= 1.0
     assert 0.0 <= results.hit_at_10 <= 1.0
+
+
+def test_absent_query_term_has_no_sparse_candidates(hybrid_retriever):
+    query = "nonexistentfixturetoken"
+    assert hybrid_retriever._sparse_search(query, k=10) == []
+
+
+def test_lowercase_ticker_matches_uppercase_filter(hybrid_retriever):
+    embedding = np.ones((1, hybrid_retriever.vector_store.dim), dtype=np.float32)
+    with patch.object(hybrid_retriever.embedder, "embed_texts", return_value=embedding):
+        upper = hybrid_retriever.retrieve("revenue growth", ticker="AAPL", top_k=10)
+        lower = hybrid_retriever.retrieve("revenue growth", ticker="aapl", top_k=10)
+    assert upper
+    assert [chunk.chunk_id for chunk in lower] == [chunk.chunk_id for chunk in upper]
+    assert all(chunk.ticker == "AAPL" for chunk in lower)
