@@ -394,3 +394,49 @@ def test_publication_exception_does_not_poison_retry(pipeline, raw_doc):
     assert not pipeline.vector_store.chunk_ids
     pipeline.store_chunks(chunks, embeddings)
     assert set(pipeline.vector_store.chunk_ids) == set(embeddings)
+
+
+def test_storage_startup_replays_interrupted_ingestion(pipeline, raw_doc, tmp_path):
+    from alphasignal.scripts._common import build_storage_components
+
+    chunks = pipeline.chunk_documents([raw_doc])
+    embeddings = {chunk.chunk_id: np.ones(1536, dtype=np.float32) for chunk in chunks}
+    with patch(
+        "alphasignal.store.vector_store.faiss.write_index",
+        side_effect=OSError("disk full"),
+    ):
+        with pytest.raises(RuntimeError, match="publish"):
+            pipeline.store_chunks(chunks, embeddings)
+
+    config = {
+        **pipeline.config,
+        "storage": {
+            "faiss_index_path": str(pipeline.vector_store.index_path),
+            "sqlite_db_path": str(pipeline.metadata_store.db_path),
+            "embeddings_cache_path": str(tmp_path / "startup_cache"),
+        },
+    }
+    with patch("alphasignal.embeddings.embedder.OpenAI") as provider:
+        vectors, metadata, _ = build_storage_components(config, recover_pending=True)
+    assert not provider.return_value.embeddings.create.called
+    assert set(vectors.chunk_ids) == set(embeddings)
+    assert vectors.content_hashes == metadata.get_content_hashes()
+
+
+def test_storage_startup_ignores_batch_without_matching_commit(pipeline, raw_doc):
+    from alphasignal.ingestion.recovery import pending_batch_path, recover_vector_batch
+
+    chunks = pipeline.chunk_documents([raw_doc])
+    embeddings = {chunk.chunk_id: np.ones(1536, dtype=np.float32) for chunk in chunks}
+    with patch.object(
+        pipeline.metadata_store, "add_chunks", side_effect=OSError("SQLite unavailable")
+    ):
+        with pytest.raises(OSError, match="SQLite unavailable"):
+            pipeline.store_chunks(chunks, embeddings)
+
+    assert pending_batch_path(pipeline.vector_store).exists()
+    reloaded = VectorStore(str(pipeline.vector_store.index_path))
+    reloaded.load()
+    assert recover_vector_batch(reloaded, pipeline.metadata_store) == 0
+    assert not reloaded.chunk_ids
+    assert not pending_batch_path(reloaded).exists()
