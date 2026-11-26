@@ -15,6 +15,8 @@ from alphasignal.ingestion.news import NewsIngester
 from alphasignal.store.metadata_store import MetadataStore
 from alphasignal.store.vector_store import VectorStore
 
+from .recovery import pending_batch_path, recover_vector_batch, stage_vector_batch
+
 logger = logging.getLogger(__name__)
 
 
@@ -317,6 +319,7 @@ class IngestionPipeline:
         # Serialize ownership checks and mutations across the SQLite and
         # vector write paths. Model and network work happens before this lock.
         with self.vector_store.writer():
+            recover_vector_batch(self.vector_store, self.metadata_store)
             self._store_chunks(chunks, embeddings, source_prefixes)
 
     def _store_chunks(self, chunks, embeddings, source_prefixes):
@@ -362,9 +365,13 @@ class IngestionPipeline:
             # an unchanged re-ingestion (skip) from a content change under
             # the same chunk_id (replace the stale vector) apart from a
             # brand new chunk_id.
+            stage_vector_batch(
+                self.vector_store, chunk_ids, content_hashes, embeddings_array
+            )
             self.metadata_store.add_chunks(chunks)
             if not self.vector_store.add(embeddings_array, chunk_ids, content_hashes):
                 raise RuntimeError("Could not publish vectors; retry ingestion")
+            pending_batch_path(self.vector_store).unlink()
 
         # Remove orphans only after the new data (if any) is safely stored,
         # so a failure here never deletes current data before its
