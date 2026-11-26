@@ -96,7 +96,9 @@ async def lifespan(app: FastAPI):
             f"Loaded configuration for {len(config.get('tickers', []))} tickers"
         )
 
-    vector_store, metadata_store, embedder = build_storage_components(config)
+    vector_store, metadata_store, embedder = build_storage_components(
+        config, recover_pending=True
+    )
     logger.info(f"Vector store loaded: {len(vector_store)} vectors")
     chunks_indexed = metadata_store.count()
     logger.info(f"Metadata store connected: {chunks_indexed} chunks indexed")
