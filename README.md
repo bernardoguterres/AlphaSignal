@@ -2,14 +2,14 @@
 
 AlphaSignal is a Python and FastAPI service that answers questions about SEC filings and financial news with source-linked citations, and separately produces a per-ticker sentiment signal. It retrieves with a hybrid of BM25 keyword search and FAISS dense vector search, reranks candidates with a cross-encoder, and generates answers that cite exactly the chunks they draw from. The sentiment signal is optional and status-aware: callers can tell "no data yet," "genuine neutral," "degraded extraction," and "fully failed" apart instead of one ambiguous score. It is consumed by [AlphaLive](https://github.com/bernardoguterres/AlphaLive), an execution and risk-management engine, as one input among several before it places a trade.
 
-**Portfolio release.** The service runs end to end against a real local corpus, not a mocked design, and is backed by 406 passing tests covering software correctness: schema validation, citation-marker parsing, storage consistency, degraded-state handling, filter logic. Retrieval relevance and sentiment accuracy are separate questions this suite doesn't answer; see [Evaluation status](#evaluation-status) for what is and isn't measured.
+**Portfolio release.** The service runs end to end against a real local corpus, not a mocked design, and is backed by 447 passing test cases covering software correctness: schema validation, citation-marker parsing, storage consistency, degraded-state handling, filter logic. Retrieval relevance and sentiment accuracy are separate questions this suite doesn't answer; see [Evaluation status](#evaluation-status) for what is and isn't measured.
 
 ## Status and evidence boundary
 
 - **Runtime-verified:** the architecture executes against a real corpus. Citation integrity was checked against live queries with zero unresolved references, and the `/sentiment/{ticker}` no-data/degraded paths and AlphaLive's gate-bypass behavior were exercised against the running service.
 - **Not benchmarked:** the 50-question golden set is unannotated, and the only retrieval measurement is one run of a 20-question draft development set (below), not a benchmark. No MRR/NDCG/Hit@k claims are made, and the sentiment fixture does not establish validated accuracy.
 - **Not deployed:** Railway configuration is present and internally consistent, but has not been exercised as a running deployment.
-- **406/406 tests passing, Black-formatted** (Ruff reports 23 pre-existing findings in scripts and tests) - validates software behavior, not retrieval relevance or sentiment accuracy. A coverage percentage is intentionally omitted since it was not remeasured after the most recent changes.
+- **447 tests passing (verified 2026-11-26), Black-formatted** (Ruff reports 23 pre-existing findings in scripts and tests) - validates software behavior, not retrieval relevance or sentiment accuracy. A coverage percentage is intentionally omitted since it was not remeasured after the most recent changes.
 
 Nothing here is investment advice.
 
@@ -322,7 +322,7 @@ Ticker handling is a deliberate policy, not one uniform shape. `GET /sentiment/{
 
 ## Verification
 
-406 tests pass (`pytest`) and the codebase is Black-formatted; Ruff reports 23 pre-existing findings in scripts and tests. These tests check software correctness - schemas, citation-marker parsing, storage consistency, filter logic, caching, degraded-state handling, no-data semantics - not whether retrieval finds the right chunks or sentiment scores are accurate. The tests measure neither; see [Evaluation status](#evaluation-status) for the one draft retrieval check and for why the sentiment fixture doesn't substitute for accuracy measurement and why the retrieval golden set remains unannotated.
+447 tests pass (`pytest`, verified 2026-11-26) and the codebase is Black-formatted; Ruff reports 23 pre-existing findings in scripts and tests. These tests check software correctness - schemas, citation-marker parsing, storage consistency, filter logic, caching, degraded-state handling, no-data semantics - not whether retrieval finds the right chunks or sentiment scores are accurate. The tests measure neither; see [Evaluation status](#evaluation-status) for the one draft retrieval check and for why the sentiment fixture doesn't substitute for accuracy measurement and why the retrieval golden set remains unannotated.
 
 ## Known limitations
 
