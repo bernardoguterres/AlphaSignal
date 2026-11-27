@@ -400,11 +400,20 @@ class MetadataStore:
             statement = select(ChunkRecord.chunk_id)
             return list(session.exec(statement).all())
 
-    def get_content_hashes(self) -> dict[str, str]:
-        """Return {chunk_id: content_hash} for every chunk."""
+    def get_content_hashes(self, chunk_ids: list[str] | None = None) -> dict[str, str]:
+        """Return content hashes for the requested IDs or all chunks."""
+        statement = select(ChunkRecord.chunk_id, ChunkRecord.content_hash)
         with Session(self.engine) as session:
-            rows = session.exec(select(ChunkRecord.chunk_id, ChunkRecord.content_hash))
-            return {cid: h for cid, h in rows.all()}
+            if chunk_ids is None:
+                return dict(session.exec(statement).all())
+            hashes = {}
+            # Keep each IN clause below SQLite's legacy 999-parameter limit.
+            for offset in range(0, len(chunk_ids), 900):
+                batch = chunk_ids[offset : offset + 900]
+                hashes.update(
+                    session.exec(statement.where(ChunkRecord.chunk_id.in_(batch))).all()
+                )
+            return hashes
 
     def count(self) -> int:
         """Get total number of chunks.

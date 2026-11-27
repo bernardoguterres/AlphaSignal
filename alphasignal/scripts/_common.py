@@ -8,7 +8,7 @@ import yaml
 
 from alphasignal.embeddings.cache import EmbeddingCache
 from alphasignal.embeddings.embedder import Embedder
-from alphasignal.ingestion.recovery import recover_vector_batch
+from alphasignal.ingestion.recovery import recover_orphan_cleanup, recover_vector_batch
 from alphasignal.store.metadata_store import MetadataStore
 from alphasignal.store.vector_store import VectorStore
 
@@ -36,7 +36,7 @@ def build_storage_components(
 
     Args:
         config: Configuration dictionary
-        recover_pending: Replay the active corpus's unfinished vector batch.
+        recover_pending: Replay unfinished vector upserts and orphan cleanup.
 
     Returns:
         Tuple of (vector_store, metadata_store, embedder)
@@ -56,6 +56,7 @@ def build_storage_components(
     if recover_pending:
         try:
             recover_vector_batch(vector_store, metadata_store)
+            recover_orphan_cleanup(vector_store, metadata_store)
         except (OSError, ValueError, RuntimeError, KeyError, EOFError, BadZipFile):
             logging.getLogger(__name__).exception(
                 "Pending ingestion recovery failed; the batch is retained for retry"
