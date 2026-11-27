@@ -1,5 +1,6 @@
-"""Replay unpublished vector upserts from a local ingestion batch."""
+"""Replay interrupted vector upserts and orphan cleanup."""
 
+import json
 import logging
 
 import numpy as np
@@ -57,3 +58,44 @@ def recover_vector_batch(vector_store: VectorStore, metadata: MetadataStore) -> 
             "Replayed %d vector(s) from a pending ingestion batch", len(matching)
         )
         return len(matching)
+
+
+def _pending_cleanup_path(vector_store: VectorStore):
+    return vector_store.index_path / "pending-orphan-cleanup.json"
+
+
+def stage_orphan_cleanup(
+    vector_store: VectorStore, metadata: MetadataStore, ids: set[str]
+) -> None:
+    """Record exact retirements before removing any data, under the writer lock."""
+    hashes = metadata.get_content_hashes(sorted(ids))
+    if set(hashes) != ids or not all(hashes.values()):
+        raise ValueError("Cannot stage orphan cleanup without metadata content hashes")
+    path = _pending_cleanup_path(vector_store)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(hashes), encoding="utf-8")
+    temporary.replace(path)
+
+
+def recover_orphan_cleanup(vector_store: VectorStore, metadata: MetadataStore) -> None:
+    """Finish a recorded retirement even if one store has already applied it."""
+    path = _pending_cleanup_path(vector_store)
+    with vector_store.writer():
+        if not path.exists():
+            return
+        expected = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(expected, dict) or not all(
+            chunk_id and isinstance(digest, str) and digest
+            for chunk_id, digest in expected.items()
+        ):
+            raise ValueError("Invalid pending orphan cleanup batch")
+        current = metadata.get_content_hashes(list(expected))
+        ids = [cid for cid, digest in expected.items() if current.get(cid) == digest]
+        # A missing row means deletion already completed for a paired store.
+        # A changed row may come from maintenance or a restored metadata store.
+        # Neither can authorize another removal.
+        if ids:
+            vector_store.remove(ids)
+            metadata.delete_chunks(ids)
+        path.unlink()
+        logger.info("Removed %d orphaned chunk(s) from both stores", len(ids))
