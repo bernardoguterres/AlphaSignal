@@ -15,7 +15,13 @@ from alphasignal.ingestion.news import NewsIngester
 from alphasignal.store.metadata_store import MetadataStore
 from alphasignal.store.vector_store import VectorStore
 
-from .recovery import pending_batch_path, recover_vector_batch, stage_vector_batch
+from .recovery import (
+    pending_batch_path,
+    recover_orphan_cleanup,
+    recover_vector_batch,
+    stage_orphan_cleanup,
+    stage_vector_batch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +326,7 @@ class IngestionPipeline:
         # vector write paths. Model and network work happens before this lock.
         with self.vector_store.writer():
             recover_vector_batch(self.vector_store, self.metadata_store)
+            recover_orphan_cleanup(self.vector_store, self.metadata_store)
             self._store_chunks(chunks, embeddings, source_prefixes)
 
     def _store_chunks(self, chunks, embeddings, source_prefixes):
@@ -377,12 +384,8 @@ class IngestionPipeline:
         # so a failure here never deletes current data before its
         # replacement landed.
         if orphans:
-            self.vector_store.remove(list(orphans))
-            self.metadata_store.delete_chunks(list(orphans))
-            logger.info(
-                f"Removed {len(orphans)} orphaned chunk(s) no longer produced "
-                "by this source document"
-            )
+            stage_orphan_cleanup(self.vector_store, self.metadata_store, orphans)
+            recover_orphan_cleanup(self.vector_store, self.metadata_store)
 
         logger.info(f"Stored {len(chunks)} chunks")
 
