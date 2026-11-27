@@ -1,5 +1,6 @@
 """Tests for the ingestion pipeline orchestration."""
 
+from dataclasses import replace
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -440,3 +441,114 @@ def test_storage_startup_ignores_batch_without_matching_commit(pipeline, raw_doc
     assert recover_vector_batch(reloaded, pipeline.metadata_store) == 0
     assert not reloaded.chunk_ids
     assert not pending_batch_path(reloaded).exists()
+
+
+@pytest.mark.parametrize(
+    ("interrupt_before", "replace_version"),
+    [("vectors", False), ("metadata", False), ("metadata", True)],
+)
+def test_storage_startup_finishes_interrupted_empty_source_cleanup(
+    request, tmp_path, interrupt_before, replace_version
+):
+    from alphasignal.retrieval.retriever import HybridRetriever
+    from alphasignal.scripts._common import build_storage_components
+
+    with patch("alphasignal.ingestion.pipeline.SemanticChunker"):
+        pipeline = request.getfixturevalue("pipeline")
+    chunks = [
+        Chunk(
+            chunk_id="synthetic_g1_0000",
+            ticker="AAPL",
+            text="consumer electronics",
+            token_count=2,
+            doc_type="10-K",
+            source="synthetic",
+            section="item_1",
+            date=date(2024, 1, 15),
+            url=None,
+            chunk_index=0,
+            total_chunks=1,
+            source_id="synthetic",
+        )
+    ]
+    embeddings = {chunk.chunk_id: np.ones(1536, dtype=np.float32) for chunk in chunks}
+    pipeline.store_chunks(chunks, embeddings)
+    # Sparse-only metadata can be legitimate and must survive retirement
+    # of another source. Recovery only applies the journaled operation.
+    unrelated = Chunk(
+        chunk_id="unrelated_0000",
+        ticker="MSFT",
+        text="unrelated research",
+        token_count=2,
+        doc_type="10-K",
+        source="unrelated",
+        section="item_1",
+        date=date(2024, 1, 15),
+        url=None,
+        chunk_index=0,
+        total_chunks=1,
+        source_id="unrelated",
+    )
+    pipeline.metadata_store.add_chunks([unrelated])
+
+    # An authoritative re-chunk removes the whole source. The process stops
+    # immediately before or after vector removal publishes.
+    class ProcessStopped(BaseException):
+        pass
+
+    if interrupt_before == "vectors":
+        store, method = pipeline.vector_store, "remove"
+    else:
+        store, method = pipeline.metadata_store, "delete_chunks"
+    with patch.object(store, method, side_effect=ProcessStopped):
+        with pytest.raises(ProcessStopped):
+            pipeline.store_chunks([], {}, source_prefixes={chunks[0].source_id})
+    assert bool(pipeline.vector_store.chunk_ids) == (interrupt_before == "vectors")
+    assert pipeline.metadata_store.count() == 2
+
+    expected_metadata = {unrelated.chunk_id: unrelated.content_hash}
+    expected_vectors = {}
+    if replace_version:
+        # Simulate a store restored with newer content for the same ID while
+        # the old cleanup journal remains in the index directory.
+        replacement = replace(chunks[0], text="renewable energy", content_hash="")
+        pipeline.metadata_store.add_chunks([replacement])
+        expected_vectors = {replacement.chunk_id: replacement.content_hash}
+        assert pipeline.vector_store.add(
+            np.ones((1, 1536), dtype=np.float32),
+            [replacement.chunk_id],
+            expected_vectors,
+        )
+        expected_metadata.update(expected_vectors)
+
+    config = {
+        **pipeline.config,
+        "storage": {
+            "faiss_index_path": str(pipeline.vector_store.index_path),
+            "sqlite_db_path": str(pipeline.metadata_store.db_path),
+            "embeddings_cache_path": str(tmp_path / "startup_cache"),
+        },
+    }
+    with patch("alphasignal.embeddings.embedder.OpenAI") as provider:
+        vectors, metadata, embedder = build_storage_components(
+            config, recover_pending=True
+        )
+    assert not provider.return_value.embeddings.create.called
+    if not replace_version:
+        with patch.object(
+            embedder, "embed_texts", return_value=[np.ones(1536, dtype=np.float32)]
+        ):
+            hits = HybridRetriever(config, embedder, vectors, metadata).retrieve(
+                "consumer electronics", ticker="AAPL"
+            )
+        assert not hits
+    assert set(vectors.chunk_ids) == set(expected_vectors)
+    assert vectors.content_hashes == expected_vectors
+    assert metadata.get_content_hashes() == expected_metadata
+
+    with patch("alphasignal.embeddings.embedder.OpenAI"):
+        recovered_again, metadata_again, _ = build_storage_components(
+            config, recover_pending=True
+        )
+    assert recovered_again.generation == vectors.generation
+    assert metadata_again.get_content_hashes() == expected_metadata
