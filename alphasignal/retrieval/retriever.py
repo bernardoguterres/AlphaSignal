@@ -713,6 +713,39 @@ class HybridRetriever:
                 query, query_embedding, ticker, table_ids, bm25_snapshot, sparse_ids
             )
 
+        # Validate and order candidates before applying the result limit. Keep
+        # period and table priority, but a stale match cannot boost a candidate
+        # over a higher-scoring result in the same lane.
+        current_chunks: dict[str, Chunk | None] = {}
+
+        def rank_current(rows):
+            ranked = []
+            for chunk_id, dense_score, sparse_score, hybrid_score in rows:
+                if chunk_id not in current_chunks:
+                    current_chunks[chunk_id] = self.metadata_store.get_chunk(chunk_id)
+                chunk = current_chunks[chunk_id]
+                if not chunk:
+                    logger.warning(f"Chunk {chunk_id} not found in metadata store")
+                    continue
+                if chunk_id in sparse_ids and (
+                    bm25_snapshot is None or bm25_snapshot.chunks.get(chunk_id) != chunk
+                ):
+                    # Keep a dense match only if it scored the currently stored text.
+                    if not dense_score or (
+                        self._diag.dense_hashes.get(chunk_id) != chunk.content_hash
+                    ):
+                        continue
+                    sparse_score = 0.0
+                    hybrid_score = self.dense_weight * dense_score
+                ranked.append((chunk, dense_score, sparse_score, hybrid_score))
+            return sorted(ranked, key=lambda row: row[3], reverse=True)
+
+        candidates = (
+            candidate
+            for lane in (scoped, lane_tables, merged_results)
+            for candidate in rank_current(lane)
+        )
+
         # Convert to RetrievedChunk objects, collapsing exact-duplicate text
         # (the corpus holds ~11% repeated boilerplate across filings - e.g.
         # identical risk-factor paragraphs - which otherwise fills several
@@ -724,28 +757,12 @@ class HybridRetriever:
         seen_hashes: set[str] = set()
         duplicates = 0
         limit = top_k + len(scoped) + len(lane_tables)
-        for chunk_id, dense_score, sparse_score, hybrid_score in (
-            scoped + lane_tables + merged_results
-        ):
+        for chunk, dense_score, sparse_score, hybrid_score in candidates:
             if len(retrieved_chunks) >= limit:
                 break
+            chunk_id = chunk.chunk_id
             if chunk_id in seen_ids:
                 continue
-            chunk = self.metadata_store.get_chunk(chunk_id)
-            if not chunk:
-                logger.warning(f"Chunk {chunk_id} not found in metadata store")
-                continue
-            if chunk_id in sparse_ids and (
-                bm25_snapshot is None or bm25_snapshot.chunks.get(chunk_id) != chunk
-            ):
-                # The SQLite record changed since this sparse rank was built.
-                # A stale lexical match cannot rank the replacement evidence.
-                if not dense_score or (
-                    self._diag.dense_hashes.get(chunk_id) != chunk.content_hash
-                ):
-                    continue
-                sparse_score = 0.0
-                hybrid_score = self.dense_weight * dense_score
             seen_ids.add(chunk_id)
             if chunk.content_hash and chunk.content_hash in seen_hashes:
                 duplicates += 1
