@@ -552,3 +552,118 @@ def test_storage_startup_finishes_interrupted_empty_source_cleanup(
         )
     assert recovered_again.generation == vectors.generation
     assert metadata_again.get_content_hashes() == expected_metadata
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    (
+        "before_commit_unchanged_hash",
+        "after_commit",
+        "after_publish",
+        "after_removal",
+        "after_delete",
+        "restored_changed_replacement",
+    ),
+)
+def test_storage_startup_cleans_replaced_chunks_if_interrupted_before_cleanup(
+    request, tmp_path, boundary
+):
+    from alphasignal.ingestion.recovery import pending_batch_path
+    from alphasignal.retrieval.retriever import HybridRetriever
+    from alphasignal.scripts._common import build_storage_components
+
+    with patch("alphasignal.ingestion.pipeline.SemanticChunker"):
+        pipeline = request.getfixturevalue("pipeline")
+    old = Chunk(
+        chunk_id="synthetic_g1_0000",
+        ticker="AAPL",
+        text="consumer electronics",
+        token_count=2,
+        doc_type="10-K",
+        source="synthetic",
+        section="item_1",
+        date=date(2024, 1, 15),
+        url=None,
+        chunk_index=0,
+        total_chunks=1,
+        source_id="synthetic",
+    )
+    new = replace(
+        old, chunk_id="synthetic_g2_0000", text="renewable energy", content_hash=""
+    )
+    vec = np.ones(1536, dtype=np.float32)
+    if boundary == "before_commit_unchanged_hash":
+        pipeline.store_chunks([old, new], {old.chunk_id: vec, new.chunk_id: vec})
+        new = replace(new, attribution="corrected attribution")
+    else:
+        pipeline.store_chunks([old], {old.chunk_id: vec})
+
+    class ProcessStopped(BaseException):
+        pass
+
+    # Interrupt storage at each durable boundary of a replacement.
+    original_add = pipeline.vector_store.add
+    original_delete = pipeline.metadata_store.delete_chunks
+
+    def publish_then_stop(*args, **kwargs):
+        assert original_add(*args, **kwargs)
+        raise ProcessStopped
+
+    def delete_then_stop(*args, **kwargs):
+        original_delete(*args, **kwargs)
+        raise ProcessStopped
+
+    if boundary == "before_commit_unchanged_hash":
+        store, method, failure = pipeline.metadata_store, "add_chunks", ProcessStopped
+    elif boundary in ("after_commit", "restored_changed_replacement"):
+        store, method, failure = pipeline.vector_store, "add", ProcessStopped
+    elif boundary == "after_publish":
+        store, method, failure = pipeline.vector_store, "add", publish_then_stop
+    else:
+        store, method, failure = (
+            pipeline.metadata_store,
+            "delete_chunks",
+            delete_then_stop if boundary == "after_delete" else ProcessStopped,
+        )
+    with patch.object(store, method, side_effect=failure):
+        with pytest.raises(ProcessStopped):
+            pipeline.store_chunks([new], {new.chunk_id: vec})
+    if boundary == "restored_changed_replacement":
+        # Restoration can change a replacement row even if its receipt
+        # from the original transaction is still present.
+        new = replace(new, text="restored newer text", content_hash="")
+        pipeline.metadata_store.add_chunks([new])
+
+    config = {
+        **pipeline.config,
+        "storage": {
+            "faiss_index_path": str(pipeline.vector_store.index_path),
+            "sqlite_db_path": str(pipeline.metadata_store.db_path),
+            "embeddings_cache_path": str(tmp_path / "startup_cache"),
+        },
+    }
+    with patch("alphasignal.embeddings.embedder.OpenAI") as provider:
+        vectors, metadata, embedder = build_storage_components(
+            config, recover_pending=True
+        )
+    assert not provider.return_value.embeddings.create.called
+    with patch.object(embedder, "embed_texts", return_value=[vec]):
+        hits = HybridRetriever(config, embedder, vectors, metadata).retrieve(
+            "consumer electronics", ticker="AAPL"
+        )
+    if boundary == "before_commit_unchanged_hash":
+        assert old.chunk_id in {hit.chunk_id for hit in hits}
+        assert set(vectors.chunk_ids) == {old.chunk_id, new.chunk_id}
+        assert metadata.get_chunk(new.chunk_id).attribution == ""
+    elif boundary == "restored_changed_replacement":
+        assert old.chunk_id in {hit.chunk_id for hit in hits}
+        assert set(vectors.chunk_ids) == {old.chunk_id}
+        assert metadata.get_content_hashes() == {
+            old.chunk_id: old.content_hash,
+            new.chunk_id: new.content_hash,
+        }
+    else:
+        assert old.chunk_id not in {hit.chunk_id for hit in hits}
+        assert set(vectors.chunk_ids) == {new.chunk_id}
+        assert metadata.get_content_hashes() == {new.chunk_id: new.content_hash}
+    assert not pending_batch_path(vectors).exists()

@@ -16,6 +16,7 @@ from alphasignal.store.metadata_store import MetadataStore
 from alphasignal.store.vector_store import VectorStore
 
 from .recovery import (
+    get_orphan_hashes,
     pending_batch_path,
     recover_orphan_cleanup,
     recover_vector_batch,
@@ -372,18 +373,32 @@ class IngestionPipeline:
             # an unchanged re-ingestion (skip) from a content change under
             # the same chunk_id (replace the stale vector) apart from a
             # brand new chunk_id.
-            stage_vector_batch(
-                self.vector_store, chunk_ids, content_hashes, embeddings_array
+            replacement_id = stage_vector_batch(
+                self.vector_store,
+                chunk_ids,
+                content_hashes,
+                embeddings_array,
+                orphan_hashes=(
+                    get_orphan_hashes(self.metadata_store, orphans) if orphans else None
+                ),
             )
-            self.metadata_store.add_chunks(chunks)
-            if not self.vector_store.add(embeddings_array, chunk_ids, content_hashes):
-                raise RuntimeError("Could not publish vectors; retry ingestion")
-            pending_batch_path(self.vector_store).unlink()
+            if replacement_id:
+                # Only a committed replacement can retire the preceding
+                # chunks. Use the same replay path during ingest and restart.
+                self.metadata_store.add_chunks(chunks, replacement_id=replacement_id)
+                recovered = recover_vector_batch(self.vector_store, self.metadata_store)
+                if recovered != len(chunk_ids):
+                    raise RuntimeError("Could not publish replacement; retry ingestion")
+            else:
+                self.metadata_store.add_chunks(chunks)
+                if not self.vector_store.add(
+                    embeddings_array, chunk_ids, content_hashes
+                ):
+                    raise RuntimeError("Could not publish vectors; retry ingestion")
+                pending_batch_path(self.vector_store).unlink()
 
-        # Remove orphans only after the new data (if any) is safely stored,
-        # so a failure here never deletes current data before its
-        # replacement landed.
-        if orphans:
+        # A source becoming empty has no replacement transaction to commit.
+        elif orphans:
             stage_orphan_cleanup(self.vector_store, self.metadata_store, orphans)
             recover_orphan_cleanup(self.vector_store, self.metadata_store)
 
