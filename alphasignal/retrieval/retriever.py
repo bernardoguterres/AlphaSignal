@@ -210,7 +210,14 @@ class HybridRetriever:
         }
 
     def _table_lane(
-        self, query, query_embedding, ticker, table_ids, bm25_snapshot, sparse_ids
+        self,
+        query,
+        query_embedding,
+        ticker,
+        table_ids,
+        bm25_snapshot,
+        sparse_ids,
+        rank_current,
     ):
         """Best table chunks that have a column for the requested period.
 
@@ -256,11 +263,12 @@ class HybridRetriever:
             ] or None
 
         kept, cols = [], {}
-        for row in self._merge_results(dense, sparse):
-            match = matched_columns(self.metadata_store.get_chunk(row[0]))
+        for row in rank_current(self._merge_results(dense, sparse)):
+            chunk = row[0]
+            match = matched_columns(chunk)
             if match:
                 kept.append(row)
-                cols[row[0]] = match
+                cols[chunk.chunk_id] = match
             if len(kept) >= self.period_candidates:
                 break
         # The requested filings' explicitly reported tables (financial
@@ -272,16 +280,19 @@ class HybridRetriever:
         fye = self.fiscal_year_end(ticker)
         own = {(y, p) for y, p, _ in targets}
         reported = []
-        for cid in table_ids - set(cols):
-            chunk = self.metadata_store.get_chunk(cid)
-            if chunk is None or _basis_of(chunk.text) != "reported":
+        fallback = ((cid, 0.0, 0.0, 0.0) for cid in table_ids - set(cols))
+        for row in rank_current(fallback):
+            chunk = row[0]
+            if _basis_of(chunk.text) != "reported":
                 continue
             match = matched_columns(chunk)
             if match:
                 is_own = fiscal_label(chunk.doc_type, chunk.period_end, fye) in own
-                reported.append((not is_own, chunk.chunk_index, cid, match))
-        for _, _, cid, match in sorted(reported)[:_REPORTED_TABLES_CAP]:
-            kept.append((cid, 0.0, 0.0, 0.0))
+                reported.append(
+                    (not is_own, chunk.chunk_index, chunk.chunk_id, row, match)
+                )
+        for _, _, cid, row, match in sorted(reported)[:_REPORTED_TABLES_CAP]:
+            kept.append(row)
             cols[cid] = match
         return kept, cols
 
@@ -664,12 +675,39 @@ class HybridRetriever:
         merged_results = self._merge_results(dense_results, sparse_results)
         logger.debug(f"Merged to {len(merged_results)} unique chunks")
 
+        # Validate and order candidates before applying the result limits. Keep
+        # period and table priority, but a stale match cannot boost a candidate
+        # over a higher-scoring result in the same lane.
+        current_chunks: dict[str, Chunk | None] = {}
+
+        def rank_current(rows):
+            ranked = []
+            for chunk_id, dense_score, sparse_score, hybrid_score in rows:
+                if chunk_id not in current_chunks:
+                    current_chunks[chunk_id] = self.metadata_store.get_chunk(chunk_id)
+                chunk = current_chunks[chunk_id]
+                if not chunk:
+                    logger.warning(f"Chunk {chunk_id} not found in metadata store")
+                    continue
+                if chunk_id in sparse_ids and (
+                    bm25_snapshot is None or bm25_snapshot.chunks.get(chunk_id) != chunk
+                ):
+                    # Keep a dense match only if it scored the currently stored text.
+                    if not dense_score or (
+                        self._diag.dense_hashes.get(chunk_id) != chunk.content_hash
+                    ):
+                        continue
+                    sparse_score = 0.0
+                    hybrid_score = self.dense_weight * dense_score
+                ranked.append((chunk, dense_score, sparse_score, hybrid_score))
+            return sorted(ranked, key=lambda row: row[3], reverse=True)
+
         # Period-scoped pass (2026-10): when the question names a fiscal
         # period, also search only the filing(s) for that period and put
         # their best chunks into the reranking pool. Without it, a
         # neighbouring year's near-identical passage (same wording, other
         # numbers) could fill every slot - the period was never consulted.
-        scoped: list[tuple[str, float, float, float]] = []
+        scoped: list[tuple[Chunk, float, float, float]] = []
         scoped_dense_ids: set[str] = set()
         scope = None if date_from or date_to else self._period_scope(query, ticker)
         table_ids: set[str] = set()
@@ -699,10 +737,12 @@ class HybridRetriever:
                 snapshot=bm25_snapshot,
             )
             sparse_ids.update(cid for cid, _ in s_sparse)
-            scoped = self._merge_results(s_dense, s_sparse)[: self.period_candidates]
+            scoped = rank_current(self._merge_results(s_dense, s_sparse))[
+                : self.period_candidates
+            ]
             scoped_dense_ids = {cid for cid, _ in s_dense}
 
-        lane_tables: list[tuple[str, float, float, float]] = []
+        lane_tables: list[tuple[Chunk, float, float, float]] = []
         match_cols: dict[str, list[str]] = {}
         if self.table_lane and scope:
             # Prose lane: the scoped pass above searched prose only; tables
@@ -710,40 +750,19 @@ class HybridRetriever:
             # useful prose needed) and leave the unscoped pool.
             merged_results = [x for x in merged_results if not self._is_table(x[0])]
             lane_tables, match_cols = self._table_lane(
-                query, query_embedding, ticker, table_ids, bm25_snapshot, sparse_ids
+                query,
+                query_embedding,
+                ticker,
+                table_ids,
+                bm25_snapshot,
+                sparse_ids,
+                rank_current,
             )
-
-        # Validate and order candidates before applying the result limit. Keep
-        # period and table priority, but a stale match cannot boost a candidate
-        # over a higher-scoring result in the same lane.
-        current_chunks: dict[str, Chunk | None] = {}
-
-        def rank_current(rows):
-            ranked = []
-            for chunk_id, dense_score, sparse_score, hybrid_score in rows:
-                if chunk_id not in current_chunks:
-                    current_chunks[chunk_id] = self.metadata_store.get_chunk(chunk_id)
-                chunk = current_chunks[chunk_id]
-                if not chunk:
-                    logger.warning(f"Chunk {chunk_id} not found in metadata store")
-                    continue
-                if chunk_id in sparse_ids and (
-                    bm25_snapshot is None or bm25_snapshot.chunks.get(chunk_id) != chunk
-                ):
-                    # Keep a dense match only if it scored the currently stored text.
-                    if not dense_score or (
-                        self._diag.dense_hashes.get(chunk_id) != chunk.content_hash
-                    ):
-                        continue
-                    sparse_score = 0.0
-                    hybrid_score = self.dense_weight * dense_score
-                ranked.append((chunk, dense_score, sparse_score, hybrid_score))
-            return sorted(ranked, key=lambda row: row[3], reverse=True)
 
         candidates = (
             candidate
-            for lane in (scoped, lane_tables, merged_results)
-            for candidate in rank_current(lane)
+            for lane in (scoped, lane_tables, rank_current(merged_results))
+            for candidate in lane
         )
 
         # Convert to RetrievedChunk objects, collapsing exact-duplicate text
@@ -818,8 +837,8 @@ class HybridRetriever:
             "dense": [cid for cid, _ in dense_results],
             "sparse": [cid for cid, _ in sparse_results],
             "candidates": [c.chunk_id for c in retrieved_chunks],
-            "period_scoped": [cid for cid, *_ in scoped],
-            "table_lane": [cid for cid, *_ in lane_tables],
+            "period_scoped": [chunk.chunk_id for chunk, *_ in scoped],
+            "table_lane": [chunk.chunk_id for chunk, *_ in lane_tables],
         }
         self.last_diagnostics.update(
             {
