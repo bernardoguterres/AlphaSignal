@@ -44,6 +44,14 @@ class ChunkRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ReplacementCommit(SQLModel, table=True):
+    """Commit receipt for replacement chunks whose cleanup is still pending."""
+
+    __tablename__ = "replacement_commits"  # type: ignore
+
+    batch_id: str = Field(primary_key=True)
+
+
 class MetadataStore:
     """Manages SQLite database for chunk metadata."""
 
@@ -141,11 +149,12 @@ class MetadataStore:
                 "space) and retry."
             ) from e
 
-    def add_chunks(self, chunks: list[Chunk]):
+    def add_chunks(self, chunks: list[Chunk], *, replacement_id: str | None = None):
         """Add chunks to the database.
 
         Args:
             chunks: List of Chunk objects to add
+            replacement_id: Optional receipt committed with a replacement batch
         """
         if not chunks:
             return
@@ -179,6 +188,8 @@ class MetadataStore:
                 # the embedding cache/FAISS layer (see VectorStore.add).
                 session.merge(record)
 
+            if replacement_id is not None:
+                session.add(ReplacementCommit(batch_id=replacement_id))
             session.commit()
 
         logger.info(f"Added {len(chunks)} chunks to metadata store")
@@ -372,13 +383,19 @@ class MetadataStore:
             )
             return list(session.exec(statement).all())
 
-    def delete_chunks(self, chunk_ids: list[str]):
+    def has_replacement_commit(self, batch_id: str) -> bool:
+        """Verify that the replacement batch was committed to this database."""
+        with Session(self.engine) as session:
+            return session.get(ReplacementCommit, batch_id) is not None
+
+    def delete_chunks(self, chunk_ids: list[str], *, replacement_id: str | None = None):
         """Delete chunks by ID.
 
         Args:
             chunk_ids: Chunk identifiers to remove
+            replacement_id: Optional receipt cleared with the deletion
         """
-        if not chunk_ids:
+        if not chunk_ids and replacement_id is None:
             return
 
         with Session(self.engine) as session:
@@ -386,6 +403,10 @@ class MetadataStore:
                 record = session.get(ChunkRecord, chunk_id)
                 if record is not None:
                     session.delete(record)
+            if replacement_id is not None:
+                receipt = session.get(ReplacementCommit, replacement_id)
+                if receipt is not None:
+                    session.delete(receipt)
             session.commit()
 
         logger.info(f"Deleted {len(chunk_ids)} chunk(s) from metadata store")
