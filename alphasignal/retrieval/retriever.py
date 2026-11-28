@@ -4,11 +4,13 @@ import logging
 import re
 import threading
 from datetime import date
+from typing import NamedTuple
 
 import numpy as np
 from rank_bm25 import BM25Okapi
 
 from alphasignal.embeddings.embedder import Embedder
+from alphasignal.ingestion import Chunk
 from alphasignal.ingestion.tables import fold_dashes
 from alphasignal.retrieval import RetrievedChunk
 from alphasignal.retrieval.periods import (
@@ -63,6 +65,12 @@ def _asks_for_basis(query: str, basis: str) -> bool:
     return bool(_basis_parts(basis) & requested_bases(query))
 
 
+class _BM25Snapshot(NamedTuple):
+    index: BM25Okapi
+    chunk_ids: list[str]
+    chunks: dict[str, Chunk]
+
+
 class HybridRetriever:
     """Combines BM25 sparse retrieval and FAISS dense retrieval."""
 
@@ -104,9 +112,7 @@ class HybridRetriever:
         self.dense_weight = weights.get("dense", 0.6)
 
         # BM25 index (built on demand)
-        self.bm25_index: BM25Okapi | None = None
-        self.bm25_chunk_ids: list[str] = []
-        self.bm25_chunks: dict[str, any] = {}
+        self._bm25: _BM25Snapshot | None = None
         self._diag = threading.local()
         self.last_diagnostics = {}
 
@@ -203,7 +209,9 @@ class HybridRetriever:
             if (sec or "").endswith("_table") and fiscal_label(dt, pe, fye) in want
         }
 
-    def _table_lane(self, query, query_embedding, ticker, table_ids):
+    def _table_lane(
+        self, query, query_embedding, ticker, table_ids, bm25_snapshot, sparse_ids
+    ):
         """Best table chunks that have a column for the requested period.
 
         Tables are searched apart from prose (dense + BM25 restricted to the
@@ -220,8 +228,13 @@ class HybridRetriever:
             self.vector_store.search(query_embedding, k=k, filter_ids=table_ids)
         )
         sparse = self._sparse_search(
-            query, k=k, ticker_filter=ticker, restrict_ids=table_ids
+            query,
+            k=k,
+            ticker_filter=ticker,
+            restrict_ids=table_ids,
+            snapshot=bm25_snapshot,
         )
+        sparse_ids.update(cid for cid, _ in sparse)
         targets = self._targets(query, ticker)
 
         def matched_columns(chunk) -> list[str] | None:
@@ -289,6 +302,7 @@ class HybridRetriever:
 
         if not all_chunk_ids:
             logger.warning("No chunks found in metadata store")
+            self._bm25 = None
             return
 
         # Retrieve all chunks
@@ -298,16 +312,32 @@ class HybridRetriever:
             if chunk:
                 chunks.append(chunk)
 
-        tokenized_texts = [self._tokenize(chunk.text) for chunk in chunks]
-
-        # Build BM25 index
-        self.bm25_index = BM25Okapi(tokenized_texts)
-        self.bm25_chunk_ids = [chunk.chunk_id for chunk in chunks]
-
-        # Store chunks for later retrieval
-        self.bm25_chunks = {chunk.chunk_id: chunk for chunk in chunks}
+        if not chunks:
+            self._bm25 = None
+            return
+        # Publish the ranking index and the corresponding records together.
+        self._bm25 = _BM25Snapshot(
+            BM25Okapi([self._tokenize(chunk.text) for chunk in chunks]),
+            [chunk.chunk_id for chunk in chunks],
+            {chunk.chunk_id: chunk for chunk in chunks},
+        )
 
         logger.info(f"Built BM25 index with {len(chunks)} chunks")
+
+    @property
+    def bm25_index(self) -> BM25Okapi | None:
+        snapshot = self._bm25
+        return snapshot.index if snapshot else None
+
+    @property
+    def bm25_chunk_ids(self) -> list[str]:
+        snapshot = self._bm25
+        return snapshot.chunk_ids if snapshot else []
+
+    @property
+    def bm25_chunks(self) -> dict[str, Chunk]:
+        snapshot = self._bm25
+        return snapshot.chunks if snapshot else {}
 
     def _dense_search(
         self,
@@ -434,6 +464,9 @@ class HybridRetriever:
                     chunk_id,
                 )
                 continue
+            dense_hashes = getattr(self._diag, "dense_hashes", None)
+            if dense_hashes is not None:
+                dense_hashes[chunk_id] = vector_hash
             filtered.append((chunk_id, score))
         return filtered
 
@@ -445,6 +478,7 @@ class HybridRetriever:
         date_from: date | None = None,
         date_to: date | None = None,
         restrict_ids: set[str] | None = None,
+        snapshot: _BM25Snapshot | None = None,
     ) -> list[tuple[str, float]]:
         """Perform sparse BM25 search.
 
@@ -460,16 +494,17 @@ class HybridRetriever:
             List of (chunk_id, score) tuples
         """
         # Build index if not already built
-        if self.bm25_index is None:
-            self.build_bm25_index()
-
-        if self.bm25_index is None or not self.bm25_chunk_ids:
+        if snapshot is None:
+            if self._bm25 is None:
+                self.build_bm25_index()
+            snapshot = self._bm25
+        if snapshot is None:
             return []
 
         tokenized_query = self._tokenize(query)
 
         # Get BM25 scores
-        scores = self.bm25_index.get_scores(tokenized_query)
+        scores = snapshot.index.get_scores(tokenized_query)
 
         # Apply filters
         filtered_results = []
@@ -478,8 +513,8 @@ class HybridRetriever:
             # it in the result set can give it full weight when all tie.
             if score == 0:
                 continue
-            chunk_id = self.bm25_chunk_ids[idx]
-            chunk = self.bm25_chunks.get(chunk_id)
+            chunk_id = snapshot.chunk_ids[idx]
+            chunk = snapshot.chunks.get(chunk_id)
 
             if not chunk:
                 continue
@@ -595,6 +630,7 @@ class HybridRetriever:
         # contributed, so a degraded (sparse-only) run is visible instead of
         # silently presented as "hybrid".
         self.last_diagnostics = {"dense_raw_hits": 0, "dense_excluded_unverified": 0}
+        self._diag.dense_hashes = {}
 
         # Embed query
         query_embedding = self.embedder.embed_texts([query])[0]
@@ -610,13 +646,18 @@ class HybridRetriever:
         logger.debug(f"Dense search returned {len(dense_results)} results")
 
         # Perform sparse search
+        if self._bm25 is None:
+            self.build_bm25_index()
+        bm25_snapshot = self._bm25
         sparse_results = self._sparse_search(
             query,
             k=self.sparse_candidates,
             ticker_filter=ticker,
             date_from=date_from,
             date_to=date_to,
+            snapshot=bm25_snapshot,
         )
+        sparse_ids = {cid for cid, _ in sparse_results}
         logger.debug(f"Sparse search returned {len(sparse_results)} results")
 
         # Merge results
@@ -651,8 +692,13 @@ class HybridRetriever:
                 )
             )
             s_sparse = self._sparse_search(
-                query, k=self.period_candidates, ticker_filter=ticker, restrict_ids=ids
+                query,
+                k=self.period_candidates,
+                ticker_filter=ticker,
+                restrict_ids=ids,
+                snapshot=bm25_snapshot,
             )
+            sparse_ids.update(cid for cid, _ in s_sparse)
             scoped = self._merge_results(s_dense, s_sparse)[: self.period_candidates]
             scoped_dense_ids = {cid for cid, _ in s_dense}
 
@@ -664,7 +710,7 @@ class HybridRetriever:
             # useful prose needed) and leave the unscoped pool.
             merged_results = [x for x in merged_results if not self._is_table(x[0])]
             lane_tables, match_cols = self._table_lane(
-                query, query_embedding, ticker, table_ids
+                query, query_embedding, ticker, table_ids, bm25_snapshot, sparse_ids
             )
 
         # Convert to RetrievedChunk objects, collapsing exact-duplicate text
@@ -685,11 +731,22 @@ class HybridRetriever:
                 break
             if chunk_id in seen_ids:
                 continue
-            seen_ids.add(chunk_id)
             chunk = self.metadata_store.get_chunk(chunk_id)
             if not chunk:
                 logger.warning(f"Chunk {chunk_id} not found in metadata store")
                 continue
+            if chunk_id in sparse_ids and (
+                bm25_snapshot is None or bm25_snapshot.chunks.get(chunk_id) != chunk
+            ):
+                # The SQLite record changed since this sparse rank was built.
+                # A stale lexical match cannot rank the replacement evidence.
+                if not dense_score or (
+                    self._diag.dense_hashes.get(chunk_id) != chunk.content_hash
+                ):
+                    continue
+                sparse_score = 0.0
+                hybrid_score = self.dense_weight * dense_score
+            seen_ids.add(chunk_id)
             if chunk.content_hash and chunk.content_hash in seen_hashes:
                 duplicates += 1
                 continue

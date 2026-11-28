@@ -19,6 +19,7 @@ from alphasignal.api.schemas import (
     IngestResponse,
 )
 from alphasignal.ingestion.pipeline import IngestionPipeline
+from alphasignal.ingestion.recovery import pending_batch_path
 from alphasignal.monitoring.metrics import MetricsCollector
 from alphasignal.retrieval.retriever import HybridRetriever
 
@@ -190,6 +191,14 @@ def ingest(
     except Exception as e:
         logger.error(f"Error ingesting ticker {ticker}: {e}", exc_info=True)
         metrics_collector.record_error()
+
+        # A pending publication can have committed SQLite even though the
+        # vector update failed. The sparse index should use that SQLite text.
+        if pending_batch_path(pipeline.vector_store).exists():
+            try:
+                retriever.build_bm25_index()
+            except Exception:
+                logger.exception("Could not rebuild BM25 after failed ingestion")
 
         latency_ms = int((time.time() - start_time) * 1000)
 
